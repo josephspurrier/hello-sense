@@ -1,0 +1,7 @@
+# Local server + tooling for the Hello Sense
+protobuf          # decode sensor/time protobufs
+cryptography      # AES-CBC signing + certificate generation
+tlslite-ng        # pure-Python TLS terminator (handles the CC3200 handshake)
+ecdsa             # tlslite-ng ECDHE dependency
+pyserial          # UART console access
+grpcio-tools      # protoc, to generate *_pb2.py from proto/ at setup time

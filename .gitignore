@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*_pb2.py
+aes.key
+key.aes
+ca.key
+ca.crt
+ca.der
+server.key
+server.crt
+server.log
+sense_data.jsonl
+sense_fs_backup/
