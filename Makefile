@@ -35,9 +35,15 @@ gen-certs:
 dns:
 	sudo $(PY) dns_server.py $(REDIRECT_IP)
 
-## run the local server: HTTP :80 + HTTPS :443 (sudo). Reads AES key from ./aes.key
+## run the TLS front-end: HTTP :80 + HTTPS :443 (sudo). Proxies to the backend
+## stack in ../infrastructure/docker, which must already be up.
 run:
 	sudo $(PY) sense_server.py
+
+## same, but answer time sync in Python instead of proxying to hello-time
+## (for running with no backend). Reads the AES key from ./aes.key
+run-standalone:
+	sudo SENSE_TIME_MODE=local $(PY) sense_server.py
 
 ## --- CC3200 flash tools: device must be in BOOTLOADER mode (ID->RTS, power-cycled) ---
 
