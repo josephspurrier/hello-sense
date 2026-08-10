@@ -693,6 +693,13 @@ doraemon/targets/pill_pvt/
 Note: the doraemon factory image for v1 is firmware **0.9.3**, while the latest
 buildable version from source is **1.2.1**.
 
+**Prefer this factory set if you want a working pill.** A source build at 1.2.1 has been
+observed to come up with working BLE but no ANT at all, which leaves the pill unable to
+pair or report data while every BLE check looks fine — see pitfall 10. The factory 0.9.3
+set is known good on v1 hardware.
+
+Take the images from `targets/pill_pvt/`, **not** `targets/pill_dvt/` — see pitfall 11.
+
 ### Pill v1.5
 
 ```
@@ -772,11 +779,31 @@ of 0x33), triggering `APP_ASSERT(0)` before BLE ever initializes.
 
 **Always verify your pill variant before building or flashing.**
 
-### 2. pill_PVT1 does not compile at recent tags
+### 2. pill_PVT1 does not compile after 1.2.1
 
 The v1 pill's platform code was not maintained after the Pill 1.5 was introduced.
-`pill+pill_PVT1` only compiles at tag **1.2.1** and earlier. At 1.5.8 and later,
-`pill/message_imu.c` calls functions that only exist in the pillx_DVT1 IMU driver.
+`pill+pill_PVT1` only compiles at tag **1.2.1** and earlier. The break starts at
+**1.3.0**, not at the later tags: verified by building 1.3.0 in a worktree, which fails
+with
+
+```
+pill/message_imu.c: error: too few arguments to function 'imu_enter_normal_mode'
+pill/message_imu.c: error: too few arguments to function 'imu_enter_low_power_mode'
+pill/message_imu.c: error: 'IMU_FIFO_CAPACITY_WORDS' undeclared
+pill/message_imu.c: error: implicit declaration of function 'imu_handle_fifo_read'
+```
+
+Every tag from 1.3.0 through 1.8.2 carries that same `message_imu.c`, which calls into
+the pillx (v1.5) IMU driver the v1 board does not have.
+
+Note that `pill_PVT1/platform.h` still **exists** at every tag through 1.8.2, so its
+presence proves nothing about buildability. Check whether `pill/message_imu.c` references
+`IMU_FIFO_CAPACITY_WORDS` or `imu_handle_fifo_read` instead.
+
+`ANT_PROTOCOL_VER` is **4 at every tag from 1.0.1 through 1.8.2**
+(`common/message_ant.h`), so moving between those tags never changes ANT wire
+compatibility. There is no newer tag that both builds for v1 hardware and changes
+anything about ANT.
 
 ### 3. crc16 tool is Linux-only
 
@@ -829,6 +856,58 @@ and the device has protection set, SWD reads will return all zeros.
 `HLO_FACTORY_AES` (found in `common/hlo_keys.h`) is used for encrypting the device
 info page. It is NOT the motion encryption key. The motion key is `NRF_FICR->ER`,
 unique per chip. Do not confuse the two.
+
+### 10. A source-built 1.2.1 image has working BLE but dead ANT
+
+Observed on a recovered v1 pill: a clean `pill+pill_PVT1` build at tag 1.2.1 advertises
+over BLE normally (visible as `Pill-XX`, correct service UUIDs, healthy RSSI) but never
+produces any ANT traffic. The Sense therefore cannot pair it and receives no data, while
+every BLE-based check looks perfectly healthy.
+
+Controlled comparison on the same unit:
+
+| Image | Platform | Built by | BLE | ANT |
+|---|---|---|---|---|
+| `pill+pill_DVT1.bin` | DVT1 (wrong) | factory | works | **works** |
+| `pill_app_signed.bin` 1.2.1 | PVT1 (correct) | from source | works | **dead** |
+| `pill+pill_PVT1.bin` 0.9.3 | PVT1 (correct) | factory | works | **works** |
+
+So the platform target is not the discriminator here; factory-built versus source-built
+is. Both factory images do ANT fine, including one built for the wrong platform. The
+S310 SoftDevice was verified byte-identical to the reference, and `ANT_ENABLE` is defined
+in `pill_PVT1/platform.h` under the Makefile's `-DANT_STACK_SUPPORT_REQD`, so the stack
+is present and compiled in. The cause was not chased further; suspect the ANT network key
+or channel setup in the local build.
+
+**If you need a working pill, flash the factory `pill_pvt` image set.** If you need a
+source-buildable pill, this is the thing to debug.
+
+### 11. doraemon has a `pill_dvt` target that is not for the v1 pill
+
+`doraemon/targets/pill_dvt/pill+pill_DVT1.bin` is for the pre-production DVT board, not
+the production v1 (`pill_pvt` / `pill_PVT1`). It is easy to grab the wrong one: both are
+"v1 era" and the file names differ by three characters.
+
+It will *appear* to work. `pill_DVT1` and `pill_PVT1` are nearly the same board, and the
+entire `platform.h` delta at 0.9.5 is:
+
+```
+DVT1: configTOTAL_HEAP_SIZE 1024      PVT1: configTOTAL_HEAP_SIZE 1280
+DVT1: #define PLATFORM_HAS_VLED       PVT1: //#define PLATFORM_HAS_VLED
+```
+
+**No pin-mapping differences**, which is why it runs rather than bricking the way a
+`pillx_DVT1` (v1.5) image does. But the DVT build drives an LED boost converter the PVT
+board does not populate. Use `pill_pvt`.
+
+`pill_DVT1` exists in kodobannin only up to tag **0.9.5** and is gone by 1.0.1, so no
+checkout-able tag builds it. Also note `pill+pill_DVT1.bin` carries **no version string**,
+while `pill+pill_PVT1.bin` reports `0.9.3` and a source build of 1.2.1 reports `1.2.1` —
+a quick way to tell which image you are holding:
+
+```bash
+strings pill_image.bin | grep -E '^[0-9]+\.[0-9]+\.[0-9]+'
+```
 
 ---
 

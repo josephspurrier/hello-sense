@@ -205,10 +205,25 @@ def read_chunked_body(rfile):
 
 
 class HelloHandler(BaseHTTPRequestHandler):
-    # Deliberately left at the HTTP/1.0 default. The Sense sends HTTP/1.1
-    # chunked requests but opens a new TLS connection for each one, so
-    # advertising 1.1 here only enables a keep-alive the device never uses,
-    # leaving the handler blocked on a socket the device is about to reset.
+    # HTTP/1.1, so responses are keep-alive rather than close-after-response.
+    #
+    # This overturns an earlier note here which assumed the Sense opens a new
+    # TLS connection per request. Its own log says otherwise: it holds one
+    # socket per host and reuses it ("using sock 85 85"). Answering 1.0 meant
+    # that reused socket was already closed, so the device's next request hit a
+    # dead socket, read zero bytes ("start recv error 0"), reported failure, and
+    # only succeeded on the retry over a fresh connection. That is the
+    # first-attempt failure behind the -12 the phone shows on pill pairing.
+    #
+    # The old worry was a handler left blocked on a socket the device resets.
+    # ReusableHTTPServer already covers that: it is threaded with daemon
+    # threads and puts a request_timeout deadline on every accepted socket, so
+    # an idle kept-alive connection costs one daemon thread for at most that
+    # long. Keep-alive also REQUIRES an accurate Content-Length on every
+    # response; each path here sets one (0 on the error paths).
+    #
+    # To revert: delete this line to fall back to the HTTP/1.0 default.
+    protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):
         pass
@@ -234,6 +249,25 @@ class HelloHandler(BaseHTTPRequestHandler):
         # Everything else is suripu-service: /in/sense/*, /register/*, /audio/*,
         # /logs, /check, /provision.
         return UPSTREAM_SENSE, self.path, "suripu-service"
+
+    def _finish_response(self, payload):
+        """Send the already-queued headers and the body in ONE write.
+
+        Sense reads a reply with a single recv() and only reads again if that
+        first read completely filled its 2048-byte buffer (kitsune
+        wifi_cmd.c:1720, SERVER_REPLY_BUFSZ). Our replies are a couple hundred
+        bytes of headers plus a small protobuf, far short of that. Writing the
+        headers and the body separately puts them in separate TLS records, so
+        Sense's one recv() returns headers only, decodes a body-less buffer and
+        reports "signature validation fail" -> ErrorType_NETWORK_ERROR. Every
+        request then silently succeeded on the network task's retry, except pill
+        pairing, which reports the first failure straight to the phone as -12.
+        """
+        self._headers_buffer.append(b"\r\n")
+        head = b"".join(self._headers_buffer)
+        self._headers_buffer = []
+        self.wfile.write(head + payload)
+        self.wfile.flush()
 
     def _proxy(self, body):
         base, path, label = self._route()
@@ -265,9 +299,7 @@ class HelloHandler(BaseHTTPRequestHandler):
             if k.lower() not in HOP_BY_HOP:
                 self.send_header(k, v)
         self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        if payload:
-            self.wfile.write(payload)
+        self._finish_response(payload)
         conn.close()
 
     def do_GET(self):
@@ -319,8 +351,7 @@ class HelloHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/x-protobuf")
             self.send_header("Content-Length", str(len(signed)))
-            self.end_headers()
-            self.wfile.write(signed)
+            self._finish_response(signed)
             shown = datetime.fromtimestamp(ntp_seconds - NTP_EPOCH_OFFSET, tz=timezone.utc)
             _log(f"  [TIME local] sent {shown.isoformat()}")
         except Exception as e:

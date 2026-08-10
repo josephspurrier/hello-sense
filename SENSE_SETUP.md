@@ -238,6 +238,33 @@ Python), configured for `ecdhe_rsa` / `aes256` / `sha` / `secp256r1`. One tlslit
 patched in `sense_server.py`: its `recv_into` returns `None` at EOF, which crashes
 `http.server`; we make it return `0`.
 
+**HTTP/1.1 keep-alive is required, not optional.** The Sense holds **one socket per host
+and reuses it** across requests (its log shows `using sock 85 85` on consecutive
+requests). If the server answers `HTTP/1.0`, that means close-after-response, so the
+device's next request goes out on a socket we already closed: `recv` returns zero bytes
+(`start recv error 0`), the request fails, and it only succeeds when the network task
+retries over a fresh connection.
+
+The result is that **every** request silently fails on its first attempt and succeeds on
+the second, roughly 2-3 seconds later. On uploads this is invisible. On pill pairing it is
+not: `_on_pair_failure` (kitsune `ble_proto.c`) replies to the phone immediately with
+`ErrorType_NETWORK_ERROR`, which the app shows as **-12 "pairing failed"** — even though
+the retry then succeeds server-side and the pill really does get paired.
+
+`sense_server.py` therefore sets `protocol_version = "HTTP/1.1"` on the handler. This
+needs three things to be true, and all are:
+
+- an accurate `Content-Length` on every response (all paths set one, `0` on errors);
+- `HOP_BY_HOP` stripping upstream `content-length` / `transfer-encoding` / `connection`,
+  so framing headers can't duplicate or leak a `Connection: close`;
+- a deadline on idle connections — `ReusableHTTPServer` is threaded with `daemon_threads`
+  and sets `request_timeout` on every accepted socket, so a kept-alive connection the
+  device abandons costs one daemon thread briefly rather than wedging the server.
+
+After the change, TLS handshakes drop from roughly one per request to almost none, and
+round trips that took 4-5 seconds complete in under one. To revert, delete the
+`protocol_version` line.
+
 **Cert trust + the 1950 date.** The device validates the server cert against
 `/cert/ca.der`, so you install your own CA there. At power-on, before time sync
 completes, the device's clock starts at ~1956 (NTP epoch offset). The TLS handshake
@@ -258,6 +285,38 @@ clock and real time. Once hello-time responds, the clock is correct.
 | TLS `NO_SHARED_CIPHER` / `-340` | You're using OpenSSL, not tlslite. Use this server. |
 | `sl_Connect` **-461** | Cert `notBefore` after the device's (skewed) clock. Use `gen_certs.py` (1950). |
 | Device ignores responses, resends same reading | See "Known limitations" |
+| Every request seems to take 3-5s; app shows `-12` on pill pairing | Server answering HTTP/1.0 while the Sense reuses sockets. See the keep-alive note above. |
+| A request never appears in the proxy log at all, but the device reports failure | It was written to a socket the server had already closed. Same cause as above. |
+
+### Read the Sense's own logs
+
+The single most useful debugging move, and easy to miss: the Sense uploads its internal
+`LOGF`/`LOGI` output via `POST /logs`. `LogsResource` only records the device id in the
+service log — the actual text is published to the **Kinesis `logs` stream**. With the
+local stack that is localstack on `http://localhost:4566`, shard
+`shardId-000000000000`.
+
+This is what tells you, in the device's own words, things the proxy log cannot show:
+`signature validation fail`, `using sock 85 85`, `start recv error 0`, `NT <host><path> --
+0` / `-- 1` attempt numbers, and `status: http/1.0 200 ok`.
+
+```bash
+export AWS_ACCESS_KEY_ID=x AWS_SECRET_ACCESS_KEY=x AWS_DEFAULT_REGION=us-east-1
+IT=$(aws kinesis get-shard-iterator --stream-name logs \
+       --shard-id shardId-000000000000 --shard-iterator-type LATEST \
+       --endpoint-url http://localhost:4566 --query ShardIterator --output text)
+aws kinesis get-records --shard-iterator "$IT" --limit 20 \
+    --endpoint-url http://localhost:4566 \
+  | python3 -c 'import sys,json,base64
+for r in json.load(sys.stdin).get("Records",[]):
+    d=base64.b64decode(r["Data"])
+    print("".join(chr(c) if 32<=c<127 or c==10 else "." for c in d))'
+```
+
+Two gotchas: localstack stamps records with stale `ApproximateArrivalTimestamp` values, so
+judge recency by whether records arrive **during** your watch rather than by that field;
+and dump whole records rather than grepping for a keyword, since the mechanism usually
+shows up in the surrounding lines.
 
 ---
 

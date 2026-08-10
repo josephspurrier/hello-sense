@@ -231,22 +231,56 @@ The Sense advertises as `Sense-XX` where `XX` is the leading byte of its device 
 
 ### Sleep Pill pairing
 
-The pill is motion-activated to conserve its coin cell. The app says "shake quickly for
-three seconds," but in practice:
+**The Sense finds the pill over ANT, not BLE.** This is the single most misleading thing
+about debugging pill pairing. A BLE scan from a laptop showing `Pill-XX` advertising
+proves only that the pill's BLE stack is alive; it says nothing about whether pairing can
+work. The pill's BLE radio is used for DFU and for the app's own firmware updates.
 
-- **Shake hard and continuously for 60-80 seconds** before the pill starts advertising.
-- Keep shaking through the pairing attempt. The Sense's scan window is only 30 seconds.
-- The pill advertises as `Pill-XX` (same leading-byte naming as the Sense).
+Pairing flow: **phone -> Sense -> cloud**. The phone sends BLE message type 12
+(`PAIR_PILL`) with the account token. The Sense's nRF then:
 
-Pairing flow: **phone -> Sense -> cloud**. The phone sends a BLE PAIR_PILL command to
-the Sense, which scans for the pill and registers it via `POST /register/pill` on
-suripu-service.
+1. Starts a **30 second** timer (`APP_PILL_PAIRING_TIMEOUT_INTERVAL`, kodobannin
+   `morpheus/app.h`) and calls `ANT_UserSetPairing(1)`.
+2. Waits for an `ANT_PILL_SHAKING` packet, which the pill sends only when its IMU
+   detects the shake gesture (`_on_pill_pairing_guesture_detected` ->  `_send_shake()`,
+   kodobannin `pill/message_imu.c`).
+3. On receiving it, dispatches `MSG_BLE_ACK_DEVICE_ADDED` with the pill's 64-bit UID and
+   the CC3200 calls `POST /register/pill` on suripu-service.
 
-If pairing fails, read the error code from the app logs:
-- **-4 (Timeout)**: Sense never saw the pill. Pill is asleep, shake harder/longer.
-- **-12 (SenseNetworkError)**: Sense found the pill but the server call failed. Check
-  suripu-service logs.
-- **-5 (SenseAlreadyPaired)**: Pill is paired to a different account.
+**Only the shake packet completes pairing.** Heartbeats and motion data arrive on
+different branches of the same switch in `morpheus/ant_user.c` and do nothing for
+pairing. It is entirely possible (and normal) to see `POST /in/pill` succeeding every
+60 seconds while pairing still times out: the ANT link is healthy, the Sense just never
+got a shake inside its window.
+
+So, in practice:
+
+- **Shake hard and continuously from before you tap, through the entire 30 second
+  window.** A shake beforehand does not count. This is the most common cause of failure.
+- Keep the pill **next to the Sense**. Range is measured from the orb, not the phone.
+- The pill is motion-activated to conserve its coin cell and sleeps quickly; expect to
+  shake for a long time if it has been idle.
+
+If pairing fails, read the error code from the app logs (grep the app's own log for
+`ble response has an error with device code`):
+
+- **-4 (Timeout, ~30.5s)**: the ANT pairing timer expired without a shake packet. Either
+  the pill is asleep, out of ANT range of the orb, or its ANT channel is dead.
+- **-12 (SenseNetworkError)**: the Sense's HTTP call failed. Note this fires on the
+  Sense's *first* attempt; if the proxy is answering HTTP/1.0 the first attempt always
+  fails on a reused socket, so see the keep-alive note in `SENSE_SETUP.md`.
+- **-5 (SenseAlreadyPaired)**: pill is paired to a different account.
+
+A successful pairing resolves in **under 7 seconds**. Anything taking the full 30
+seconds is a `-4`.
+
+Getting the app's log off the phone does not need USB:
+
+```bash
+xcrun devicectl device copy from --device <UDID> \
+  --domain-type appDataContainer --domain-identifier <bundle-id> \
+  --source Library/Caches/Logs --destination ./applogs
+```
 
 ---
 
