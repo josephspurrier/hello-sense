@@ -1,24 +1,34 @@
 #!/usr/bin/env python3
-"""Local server for the Hello Sense sleep tracker.
+"""TLS front-end for the Hello Sense, proxying to the local suripu backend.
 
-Receives the device's time-sync (HTTP :80) and sensor/state uploads (HTTPS :443),
-verifies/signs the AES-CBC message signatures, decodes the sensor protobufs, and
-appends readings to sense_data.jsonl.
+The Sense speaks an ancient TLS handshake that modern stacks refuse, and it
+validates the server certificate against a clock that starts ~70 years in the
+past. Both problems are solved here and nowhere else: TLS is terminated with
+tlslite-ng using a certificate dated from 1950. Everything past the handshake
+is forwarded verbatim to the Java services running under docker compose, which
+own the data.
 
-TLS is terminated with tlslite-ng rather than Python's ssl module: the CC3200 in
-the Sense offers only TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA and sends no
-supported_groups extension, which modern OpenSSL/LibreSSL/Go reject
-(NO_SHARED_CIPHER). tlslite-ng defaults to P-256 like the old OpenSSL the Hello
-cloud ran, so the handshake completes.
+    Sense --WiFi--> DNS (*.hello.is -> this host) --> :80 / :443 (this file)
+                                                          |
+                            time.hello.is       -> hello-time      :1111
+                            sense-in.hello.is   -> suripu-service  :5555
+                            messeji.hello.is    -> messeji         :10000
+
+Bodies are forwarded byte-for-byte. Each request is AES-CBC signed with the
+device's own key, and the Java services verify that signature against the key
+in the DynamoDB key_store table, so any rewriting here would break them.
 
 Config (no secrets in this file):
-  SENSE_AES_KEY   env var, 32 hex chars = your device's 16-byte key from
-                  /cert/key.aes (recover it with `make read-key`). If unset,
-                  falls back to the file ./aes.key, then to the firmware default
-                  key "1234567891234567".
+  SENSE_UPSTREAM_TIME     default http://127.0.0.1:1111
+  SENSE_UPSTREAM_SENSE    default http://127.0.0.1:5555
+  SENSE_UPSTREAM_MESSEJI  default http://127.0.0.1:10000
+  SENSE_TIME_MODE         "proxy" (default) or "local", see _handle_time_local
+  SENSE_AES_KEY           32 hex chars, only needed for SENSE_TIME_MODE=local.
+                          Falls back to ./aes.key, then the firmware default.
 """
 
 import hashlib
+import http.client
 import json
 import os
 import socket
@@ -27,6 +37,8 @@ import time
 import threading
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
+from urllib.parse import urlsplit
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -37,8 +49,16 @@ from tlslite.tlsrecordlayer import TLSRecordLayer
 
 def _recv_into_fixed(self, b):
     """tlslite's recv_into returns None at EOF, which breaks http.server's
-    BufferedReader (it expects bytes/int). Return 0 at EOF instead."""
-    data = self.read(len(b))
+    BufferedReader (it expects bytes/int). Return 0 at EOF instead.
+
+    Also treats an abrupt close as EOF. The Sense opens a fresh TLS connection
+    per request and drops the previous one with an RST rather than a clean
+    shutdown, which otherwise surfaces as an unhandled ConnectionResetError
+    traceback from socketserver."""
+    try:
+        data = self.read(len(b))
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        return 0
     if not data:
         return 0
     b[:len(data)] = data
@@ -48,12 +68,38 @@ def _recv_into_fixed(self, b):
 TLSRecordLayer.recv_into = _recv_into_fixed
 
 import ntp_pb2
-import periodic_pb2
 
 CERT_FILE = "server.crt"
 KEY_FILE = "server.key"
-DATA_FILE = "sense_data.jsonl"
 TLS_LOG = "server.log"
+
+UPSTREAM_TIME = os.environ.get("SENSE_UPSTREAM_TIME", "http://127.0.0.1:1111")
+UPSTREAM_SENSE = os.environ.get("SENSE_UPSTREAM_SENSE", "http://127.0.0.1:5555")
+UPSTREAM_MESSEJI = os.environ.get("SENSE_UPSTREAM_MESSEJI", "http://127.0.0.1:10000")
+TIME_MODE = os.environ.get("SENSE_TIME_MODE", "proxy").lower()
+
+# Seconds between the NTP epoch (1900-01-01) and the Unix epoch (1970-01-01).
+# The Sense expects NTP-style timestamps. Sending it Unix seconds is what made
+# it report 1956 instead of 2026, which in turn made suripu-workers discard
+# every sample as more than two hours out of sync.
+NTP_EPOCH_OFFSET = 2208988800
+
+
+def _to_signed64(value):
+    """Wrap a 64-bit unsigned value into the signed range.
+
+    NTP timestamps are unsigned 64-bit fixed point, but the protobuf field is
+    int64 and Java's TimeStamp.ntpValue() hands back a signed long that has
+    already wrapped negative for any present-day date. Protobuf rejects
+    anything above 2**63-1, so match Java's representation.
+    """
+    return value - (1 << 64) if value >= (1 << 63) else value
+
+# Headers that describe this specific hop and must not be relayed onward.
+HOP_BY_HOP = {
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "te", "trailers", "transfer-encoding", "upgrade", "content-length", "host",
+}
 
 
 def load_aes_key():
@@ -92,8 +138,14 @@ def _log(msg):
     sys.stdout.flush()
 
 
-class ReusableHTTPServer(HTTPServer):
+class ReusableHTTPServer(ThreadingMixIn, HTTPServer):
+    # Threaded, with a deadline on every accepted socket. Served serially and
+    # without timeouts, a single connection the Sense abandons mid-request
+    # (it resets them often) blocks the accept loop forever: the device keeps
+    # connecting, the backlog fills, and every upload is lost until restart.
     allow_reuse_address = True
+    daemon_threads = True
+    request_timeout = 60  # comfortably above the ~10s messeji long-poll
 
     def server_bind(self):
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -102,6 +154,15 @@ class ReusableHTTPServer(HTTPServer):
         except (AttributeError, OSError):
             pass
         super().server_bind()
+
+    def get_request(self):
+        sock, addr = super().get_request()
+        sock.settimeout(self.request_timeout)
+        return sock, addr
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        _log(f"[CONN] {client_address[0]} dropped: {type(exc).__name__}: {exc}")
 
 
 class TLSHelloServer(TLSSocketServerMixIn, ReusableHTTPServer):
@@ -124,10 +185,14 @@ class TLSHelloServer(TLSSocketServerMixIn, ReusableHTTPServer):
 
 
 def read_chunked_body(rfile):
-    """Read a chunked transfer-encoded body, preserving chunk boundaries."""
+    """Read a chunked transfer-encoded body and return the reassembled bytes."""
     chunks = []
     while True:
-        line = rfile.readline().strip()
+        raw = rfile.readline()
+        if not raw:
+            # EOF mid-body. Without this the loop spins on b'' forever.
+            raise ConnectionError("connection closed mid-chunked-body")
+        line = raw.strip()
         if not line:
             continue
         size = int(line, 16)
@@ -136,10 +201,15 @@ def read_chunked_body(rfile):
             break
         chunks.append(bytes(rfile.read(size)))
         rfile.readline()      # trailing CRLF after chunk
-    return chunks
+    return b"".join(chunks)
 
 
 class HelloHandler(BaseHTTPRequestHandler):
+    # Deliberately left at the HTTP/1.0 default. The Sense sends HTTP/1.1
+    # chunked requests but opens a new TLS connection for each one, so
+    # advertising 1.1 here only enables a keep-alive the device never uses,
+    # leaving the handler blocked on a socket the device is about to reset.
+
     def log_message(self, fmt, *args):
         pass
 
@@ -147,99 +217,117 @@ class HelloHandler(BaseHTTPRequestHandler):
         if self.headers.get("Transfer-Encoding", "").lower() == "chunked":
             return read_chunked_body(self.rfile)
         n = int(self.headers.get("Content-Length", 0))
-        return [self.rfile.read(n)] if n > 0 else [b""]
+        return self.rfile.read(n) if n > 0 else b""
 
-    def _send_ok(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "application/octet-stream")
+    def _route(self):
+        """Pick an upstream for this request. Returns (base_url, path, label)."""
+        host = (self.headers.get("Host") or "").lower()
+
+        if "time.hello.is" in host or "ntp.hello.is" in host:
+            # hello-time exposes exactly one route, TimeResource @Path("/"),
+            # so the device's own path is logged but not forwarded.
+            return UPSTREAM_TIME, "/", "hello-time"
+
+        if "messeji" in host or self.path.startswith("/receive"):
+            return UPSTREAM_MESSEJI, self.path, "messeji"
+
+        # Everything else is suripu-service: /in/sense/*, /register/*, /audio/*,
+        # /logs, /check, /provision.
+        return UPSTREAM_SENSE, self.path, "suripu-service"
+
+    def _proxy(self, body):
+        base, path, label = self._route()
+        parts = urlsplit(base)
+
+        # Forward the device's headers untouched apart from this hop's own.
+        # X-Hello-Sense-Id in particular is how the services look up the AES key.
+        headers = {k: v for k, v in self.headers.items()
+                   if k.lower() not in HOP_BY_HOP}
+        headers["Content-Length"] = str(len(body))
+        headers["Host"] = parts.netloc
+
+        try:
+            conn = http.client.HTTPConnection(parts.hostname, parts.port or 80, timeout=30)
+            conn.request(self.command, path, body=body, headers=headers)
+            resp = conn.getresponse()
+            payload = resp.read()
+        except Exception as e:
+            _log(f"  -> {label} UNREACHABLE: {type(e).__name__}: {e}")
+            self.send_response(502)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        _log(f"  -> {label} {path} = HTTP {resp.status}, {len(payload)}B")
+
+        self.send_response(resp.status)
+        for k, v in resp.getheaders():
+            if k.lower() not in HOP_BY_HOP:
+                self.send_header(k, v)
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
+        if payload:
+            self.wfile.write(payload)
+        conn.close()
 
     def do_GET(self):
         _log(f"[REQ] GET {self.path} (Host: {self.headers.get('Host', '?')})")
-        self._send_ok()
+        self._proxy(b"")
 
     def do_POST(self):
         host = self.headers.get("Host", "?")
-        chunks = self._read_body()
-        total = sum(len(c) for c in chunks)
-        _log(f"[REQ] POST {self.path} (Host: {host}, {len(chunks)} chunks, {total} bytes)")
+        body = self._read_body()
+        _log(f"[REQ] POST {self.path} (Host: {host}, {len(body)} bytes)")
 
-        if "time.hello.is" in host or "ntp.hello.is" in host:
-            self._handle_time_sync(chunks)
-        elif "/in/sense/batch" in self.path:
-            self._handle_sensor_batch(chunks)
+        is_time = "time.hello.is" in host.lower() or "ntp.hello.is" in host.lower()
+        if is_time and TIME_MODE == "local":
+            self._handle_time_local(body)
         else:
-            # /in/sense/state, messeji /receive, /register, /provision, etc.
-            self._send_ok()
+            self._proxy(body)
         sys.stdout.flush()
 
     def do_PUT(self):
         self.do_POST()
 
-    def _handle_time_sync(self, chunks):
+    def _handle_time_local(self, body):
+        """Answer time sync here instead of proxying to hello-time.
+
+        Only used when SENSE_TIME_MODE=local, as a fallback for running without
+        the Java stack. Signing uses AES_KEY, so it only works for the one
+        device that key belongs to, whereas hello-time looks the key up per
+        device in key_store.
+        """
         try:
+            # Device -> server layout is [PB][IV(16)][Sig(32)], so the protobuf
+            # is everything except the trailing 48 bytes. This mirrors
+            # SignedMessage.parse in suripu-core.
+            if len(body) < 48:
+                raise ValueError(f"body too short to be signed ({len(body)}B)")
             req = ntp_pb2.NTPDataPacket()
-            req.ParseFromString(chunks[0])
-            now = int(time.time())
+            req.ParseFromString(body[:-48])
+            # NTP timestamps are 64-bit fixed point: seconds since 1900 in the
+            # high half, fraction in the low half. The seconds must be offset
+            # from the Unix epoch or the device lands 70 years in the past.
+            ntp_seconds = int(time.time()) + NTP_EPOCH_OFFSET
+            ts = _to_signed64(ntp_seconds << 32)
             resp = ntp_pb2.NTPDataPacket()
-            resp.reference_ts = now << 32
+            resp.reference_ts = ts
             resp.origin_ts = req.origin_ts if req.HasField("origin_ts") else 0
-            resp.receive_ts = now << 32
-            resp.transmit_ts = now << 32
+            resp.receive_ts = ts
+            resp.transmit_ts = ts
             signed = sign_response(resp.SerializeToString())
             self.send_response(200)
             self.send_header("Content-Type", "application/x-protobuf")
             self.send_header("Content-Length", str(len(signed)))
             self.end_headers()
             self.wfile.write(signed)
-            _log(f"  [TIME] sent {datetime.fromtimestamp(now, tz=timezone.utc).isoformat()}")
+            shown = datetime.fromtimestamp(ntp_seconds - NTP_EPOCH_OFFSET, tz=timezone.utc)
+            _log(f"  [TIME local] sent {shown.isoformat()}")
         except Exception as e:
-            _log(f"  [TIME] error: {e}")
-            self._send_ok()
-
-    def _handle_sensor_batch(self, chunks):
-        body = chunks[0]
-        try:
-            batch = periodic_pb2.batched_periodic_data()
-            batch.ParseFromString(body)
-            _log(f"  [BATCH] Device: {batch.device_id}, FW: {batch.firmware_version}, "
-                 f"{len(batch.data)} reading(s)")
-            for r in batch.data:
-                dt = datetime.fromtimestamp(r.unix_time, tz=timezone.utc) if r.HasField("unix_time") else None
-                temp_c = r.temperature / 100.0 if r.HasField("temperature") else None
-                humidity = r.humidity / 100.0 if r.HasField("humidity") else None
-                light = r.light if r.HasField("light") else None
-                dust = r.dust if r.HasField("dust") else None
-                pressure = r.pressure / 256.0 if r.HasField("pressure") else None
-
-                bits = []
-                if dt:
-                    bits.append(f"time={dt.isoformat()}")
-                if temp_c is not None:
-                    bits.append(f"temp={temp_c:.1f}C/{temp_c * 9 / 5 + 32:.1f}F")
-                if humidity is not None:
-                    bits.append(f"humidity={humidity:.1f}%")
-                if light is not None:
-                    bits.append(f"light={light}")
-                if dust is not None:
-                    bits.append(f"dust={dust}")
-                if pressure is not None:
-                    bits.append(f"pressure={pressure:.1f}Pa")
-                _log("    " + ", ".join(bits))
-
-                with open(DATA_FILE, "a") as f:
-                    f.write(json.dumps({
-                        "timestamp": dt.isoformat() if dt else None,
-                        "device_id": batch.device_id,
-                        "temperature_c": temp_c,
-                        "humidity_pct": humidity,
-                        "light": light,
-                        "dust": dust,
-                        "pressure_pa": pressure,
-                    }) + "\n")
-        except Exception as e:
-            _log(f"  [BATCH] decode error: {e}; raw {len(body)}B: {body.hex()[:160]}")
-        self._send_ok()
+            _log(f"  [TIME local] error: {e}")
+            self.send_response(500)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
 
 
 def _build_tls_settings():
@@ -271,9 +359,14 @@ def run_server(port, use_ssl):
 
 
 def main():
-    print("=== Hello Sense local server ===")
-    print(f"AES key: {'custom' if AES_KEY != b'1234567891234567' else 'DEFAULT (1234567891234567)'}")
-    print(f"Sensor data -> {DATA_FILE}\n", flush=True)
+    print("=== Hello Sense TLS front-end (proxy mode) ===")
+    print(f"  time.hello.is     -> {UPSTREAM_TIME}"
+          f"{'  [OVERRIDDEN: answering locally]' if TIME_MODE == 'local' else ''}")
+    print(f"  sense-in.hello.is -> {UPSTREAM_SENSE}")
+    print(f"  messeji.hello.is  -> {UPSTREAM_MESSEJI}")
+    if TIME_MODE == "local":
+        print(f"  AES key: {'custom' if AES_KEY != b'1234567891234567' else 'DEFAULT'}")
+    print(flush=True)
     threading.Thread(target=run_server, args=(80, False), daemon=True).start()
     threading.Thread(target=run_server, args=(443, True), daemon=True).start()
     try:

@@ -239,11 +239,12 @@ patched in `sense_server.py`: its `recv_into` returns `None` at EOF, which crash
 `http.server`; we make it return `0`.
 
 **Cert trust + the 1950 date.** The device validates the server cert against
-`/cert/ca.der`, so you install your own CA there. And its clock runs **~70 years behind**
-(a firmware epoch bug: real 2026 shows as ~1956), so cert date validation fails
+`/cert/ca.der`, so you install your own CA there. At power-on, before time sync
+completes, the device's clock starts at ~1956 (NTP epoch offset). The TLS handshake
+happens before the time sync response corrects the clock, so cert date validation fails
 (`sl_Connect` error **-461 = `SL_ESECDATEERROR`**) unless the cert's `notBefore` predates
-~1956. `gen_certs.py` dates the certs from **1950**, which satisfies both the skewed clock
-and real time.
+~1956. `gen_certs.py` dates the certs from **1950**, which satisfies both the pre-sync
+clock and real time. Once hello-time responds, the clock is correct.
 
 ---
 
@@ -262,12 +263,11 @@ and real time.
 
 ## Known limitations
 
-- **Readings repeat.** The server acks `/in/sense/batch` with a plain `200`; the firmware
+- **Readings repeat in standalone mode.** When running with `SENSE_TIME_MODE=local`
+  (no backend), the server acks `/in/sense/batch` with a plain `200`. The firmware
   wants a **signed** response and resends until it gets one, so the same reading loops
-  rather than advancing. Applying `sign_response()` to the batch/state responses is the fix
-  (not yet done here).
-- **Timestamps read ~1956** due to the device's epoch bug. The sensor values are correct;
-  correct the year server-side (add 70 years, or stamp with server receive time).
+  rather than advancing. When running against the full backend (the default `make run`
+  mode), suripu-service signs the response and this does not happen.
 
 ---
 
