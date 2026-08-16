@@ -307,9 +307,17 @@ The last tag where `pill+pill_PVT1` compiles is **1.2.1**. Later tags (1.5.x, 1.
 pillx_DVT1 driver. The shared code was not kept in sync after the Pill 1.5 was
 introduced.
 
+> **Build 1.0.3, not 1.2.1, for a pill that actually pairs.** 1.2.1 compiles but
+> its ANT radio is dead (the ANT transmit scheme changed at tag 1.1.1 and no
+> longer matches the Sense), so a 1.2.1 pill shows working BLE yet never pairs —
+> see pitfall 10. Tag **1.0.3** is the newest tag that is still ANT-compatible
+> *and* builds for the v1 pill. A ready-to-build, ready-to-flash 1.0.3 bundle
+> (with the full root-cause analysis and a byte-exact toolchain validation) is in
+> **[`firmware/pill-1.0.3/`](firmware/pill-1.0.3/README.md)**.
+
 ```bash
 cd kodobannin
-git checkout 1.2.1
+git checkout 1.0.3          # 1.0.3 = working ANT; 1.2.1 compiles but ANT is dead
 make pill+pill_PVT1
 make bootloader+pill_PVT1
 ```
@@ -690,13 +698,16 @@ doraemon/targets/pill_pvt/
   app+bootloader.prod.in                     # J-Link script template
 ```
 
-Note: the doraemon factory image for v1 is firmware **0.9.3**, while the latest
-buildable version from source is **1.2.1**.
+Note: the doraemon factory image for v1 is firmware **0.9.3**. The latest tag that
+*compiles* for the v1 pill is 1.2.1, but 1.2.1's ANT is dead (see below).
 
-**Prefer this factory set if you want a working pill.** A source build at 1.2.1 has been
-observed to come up with working BLE but no ANT at all, which leaves the pill unable to
-pair or report data while every BLE check looks fine — see pitfall 10. The factory 0.9.3
-set is known good on v1 hardware.
+**For a working pill from source, build tag 1.0.3** — it is ANT-compatible with
+the Sense and still builds for the v1 pill, and a source build of 0.9.3 was
+verified byte-identical to this factory image, proving the toolchain. Use
+**[`firmware/pill-1.0.3/`](firmware/pill-1.0.3/README.md)**. A source build at
+**1.2.1** instead comes up with working BLE but **no ANT**, leaving the pill
+unable to pair or report data while every BLE check looks fine — see pitfall 10.
+The factory 0.9.3 set is also known good on v1 hardware if you prefer a prebuilt image.
 
 Take the images from `targets/pill_pvt/`, **not** `targets/pill_dvt/` — see pitfall 11.
 
@@ -872,15 +883,23 @@ Controlled comparison on the same unit:
 | `pill_app_signed.bin` 1.2.1 | PVT1 (correct) | from source | works | **dead** |
 | `pill+pill_PVT1.bin` 0.9.3 | PVT1 (correct) | factory | works | **works** |
 
-So the platform target is not the discriminator here; factory-built versus source-built
-is. Both factory images do ANT fine, including one built for the wrong platform. The
-S310 SoftDevice was verified byte-identical to the reference, and `ANT_ENABLE` is defined
-in `pill_PVT1/platform.h` under the Makefile's `-DANT_STACK_SUPPORT_REQD`, so the stack
-is present and compiled in. The cause was not chased further; suspect the ANT network key
-or channel setup in the local build.
+So the platform target is not the discriminator here; the firmware *version* is.
 
-**If you need a working pill, flash the factory `pill_pvt` image set.** If you need a
-source-buildable pill, this is the thing to debug.
+**Root cause (resolved):** the pill's ANT transmit path was rewritten from
+**asynchronous** to **synchronous** in kodobannin commit `cb4becff`
+("changed from async to synchronous transmit mode", 2016-03-07), first shipping in
+tag **1.1.1**. 1.2.1 is on the sync scheme; the working factory 0.9.3 is on the
+async scheme. Because the pill and the Sense's own nRF51 "morpheus" board are built
+from the same `ant/ant_driver.c`, the two ends must match — and since our Sense
+pairs with the async 0.9.3 pill, its morpheus is async, so a sync (1.2.1) pill can
+never link. It is **not** the network key: the real key `A8 AC 20 7A 1D 72 E3 4D`
+is compiled into the 1.2.1 build (via `USE_HLO_ANT_NETWORK`) exactly as in the
+working image.
+
+**Fix:** build tag **1.0.3** — the newest tag that is still async *and* builds for
+the v1 pill. A source build of 0.9.3 was verified byte-identical to the factory
+0.9.3 image, proving the toolchain reproduces a working-ANT pill. Ready-to-build
+and ready-to-flash: **[`firmware/pill-1.0.3/`](firmware/pill-1.0.3/README.md)**.
 
 ### 11. doraemon has a `pill_dvt` target that is not for the v1 pill
 

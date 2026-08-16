@@ -1,0 +1,30 @@
+// Flash the source-built Sleep Pill v1 firmware 1.0.3 (working ANT) onto a
+// pill_PVT1 via SEGGER J-Link. Run JLinkExe from the bundle root so the
+// relative paths resolve:
+//
+//   cd full-instructions/pill/firmware/pill-1.0.3
+//   JLinkExe -device nrf51422 -if swd -speed 4000 -autoconnect 1 -CommanderScript flash/flash_pill_1.0.3.jlink
+//
+// You must supply the two SoftDevice binaries (Nordic-licensed, not shipped
+// here) at flash/softdevice_main.bin and flash/softdevice_uicr.bin -- see
+// flash/README.md. Everything else (app, bootloader, settings) is in ./out.
+//
+// CTRL-AP erase/unlock, then load the full stack.
+w4 4001e504, 2
+w4 4001e50c, 1
+sleep 50
+r
+w4 4001e504, 1
+loadbin flash/softdevice_main.bin 0x0
+loadbin flash/softdevice_uicr.bin 0x10001000
+loadbin out/pill+pill_PVT1.bin 0x20000
+loadbin out/bootloader+pill_PVT1.bin 0x36000
+loadbin out/app_settings.crc.bin 0x3f000
+w4 10001014, 36000
+verifybin flash/softdevice_main.bin 0x0
+verifybin out/pill+pill_PVT1.bin 0x20000
+verifybin out/bootloader+pill_PVT1.bin 0x36000
+verifybin out/app_settings.crc.bin 0x3f000
+r
+g
+q

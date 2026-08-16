@@ -15,6 +15,8 @@ sense/       the Sense hub (the orb)
     kitsune-4513/         Sense firmware, rebuildable byte-for-byte from source (see below)
 pill/        the Sleep Pill
   PILL_RECOVERY.md        SWD recovery, variant identification, firmware build, J-Link flashing
+  firmware/
+    pill-1.0.3/           v1 pill firmware with working ANT, rebuildable from source (see below)
 services/    the local cloud replacement (Python) that the Sense talks to
   sense_server.py, dns_server.py, gen_certs.py, Makefile, proto/, requirements.txt
 ```
@@ -39,6 +41,7 @@ and `PROCESS.md`.
 | [Sense Setup](sense/SENSE_SETUP.md) | Self-hosting the Sense hub: UART access, AES key recovery, TLS/cert workarounds, local server, DNS redirect, WiFi data flow |
 | [Sense Firmware](sense/firmware/kitsune-4513/README.md) | Byte-exact rebuild of the Sense (non-Voice) firmware, build 4513 / tag 1.9.2, from source |
 | [Pill Recovery](pill/PILL_RECOVERY.md) | Recovering a bricked Sleep Pill via SWD: identifying your pill variant, building firmware from source, flashing with J-Link, AES key extraction |
+| [Pill Firmware](pill/firmware/pill-1.0.3/README.md) | v1 pill firmware built from source at tag 1.0.3 with a **working ANT radio** (why 1.2.1 doesn't pair and 1.0.3 does), rebuild + flash |
 
 ---
 

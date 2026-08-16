@@ -11,3 +11,4 @@ server.crt
 server.log
 sense_data.jsonl
 sense_fs_backup/
+.DS_Store
