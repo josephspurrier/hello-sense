@@ -6,12 +6,39 @@ accelerometer, the backend services, and the iOS app.
 
 ---
 
+## Repository layout
+
+```
+sense/       the Sense hub (the orb)
+  SENSE_SETUP.md          self-hosting guide: UART, key recovery, TLS/certs, DNS, data flow
+  firmware/
+    kitsune-4513/         Sense firmware, rebuildable byte-for-byte from source (see below)
+pill/        the Sleep Pill
+  PILL_RECOVERY.md        SWD recovery, variant identification, firmware build, J-Link flashing
+services/    the local cloud replacement (Python) that the Sense talks to
+  sense_server.py, dns_server.py, gen_certs.py, Makefile, proto/, requirements.txt
+```
+
+The Java backend the `services/` front-end proxies to lives one level up, in
+`../infrastructure/` (docker compose).
+
+## Which Sense, which firmware
+
+The firmware here is for the **original Sense — the model without Voice** (the TI
+CC3200 orb; *not* the later "Sense with Voice"). The included build is **build
+4513**, which is **hello/kitsune git tag `1.9.2`** (commit `59d5c2ea`); the device
+and app display it as firmware version **1.3.0**. `sense/firmware/kitsune-4513/`
+reproduces it **byte-for-byte** from source (SHA1 `0c5f639e…`, 146,864 bytes,
+identical to the on-device flash and the official release) — see its `README.md`
+and `PROCESS.md`.
+
 ## Guides
 
 | Guide | What it covers |
 |---|---|
-| [Sense Setup](SENSE_SETUP.md) | Self-hosting the Sense hub: UART access, AES key recovery, TLS/cert workarounds, local server, DNS redirect, WiFi data flow |
-| [Pill Recovery](PILL_RECOVERY.md) | Recovering a bricked Sleep Pill via SWD: identifying your pill variant, building firmware from source, flashing with J-Link, AES key extraction |
+| [Sense Setup](sense/SENSE_SETUP.md) | Self-hosting the Sense hub: UART access, AES key recovery, TLS/cert workarounds, local server, DNS redirect, WiFi data flow |
+| [Sense Firmware](sense/firmware/kitsune-4513/README.md) | Byte-exact rebuild of the Sense (non-Voice) firmware, build 4513 / tag 1.9.2, from source |
+| [Pill Recovery](pill/PILL_RECOVERY.md) | Recovering a bricked Sleep Pill via SWD: identifying your pill variant, building firmware from source, flashing with J-Link, AES key extraction |
 
 ---
 
@@ -114,7 +141,7 @@ All source code is from Hello's public GitHub organization or community mirrors.
 
 There are two pill hardware variants with **incompatible GPIO pin mappings**. Flashing the
 wrong variant's firmware is the most common cause of bricking. See
-[Pill Recovery](PILL_RECOVERY.md) for full details.
+[Pill Recovery](pill/PILL_RECOVERY.md) for full details.
 
 ### Pill v1 (original, ships with Sense)
 
@@ -210,7 +237,7 @@ Pin 5 (GND)  = ground
 Baud rate: **115200, 8N1**. Set the UART adapter to **3.3V** (the CC3200 is not
 5V-tolerant on I/O, and 5V breaks the bootloader handoff).
 
-See [Sense Setup](SENSE_SETUP.md) for wiring details, key recovery, and server setup.
+See [Sense Setup](sense/SENSE_SETUP.md) for wiring details, key recovery, and server setup.
 
 ---
 
@@ -268,7 +295,7 @@ If pairing fails, read the error code from the app logs (grep the app's own log 
   the pill is asleep, out of ANT range of the orb, or its ANT channel is dead.
 - **-12 (SenseNetworkError)**: the Sense's HTTP call failed. Note this fires on the
   Sense's *first* attempt; if the proxy is answering HTTP/1.0 the first attempt always
-  fails on a reused socket, so see the keep-alive note in `SENSE_SETUP.md`.
+  fails on a reused socket, so see the keep-alive note in `sense/SENSE_SETUP.md`.
 - **-5 (SenseAlreadyPaired)**: pill is paired to a different account.
 
 A successful pairing resolves in **under 7 seconds**. Anything taking the full 30

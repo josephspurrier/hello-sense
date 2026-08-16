@@ -1,0 +1,13 @@
+package hello;
+
+option java_package = "com.hello.suripu.api.ntp";
+
+
+// Should follow NTP RFC https://tools.ietf.org/html/rfc5905
+
+message NTPDataPacket {
+    optional int64 reference_ts = 1;
+    optional int64 origin_ts = 2;
+    optional int64 receive_ts = 3;
+    optional int64 transmit_ts = 4;
+}
