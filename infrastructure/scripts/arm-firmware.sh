@@ -46,7 +46,11 @@ SHA=$(shasum "$IMAGE" 2>/dev/null | cut -d' ' -f1 || sha1sum "$IMAGE" | cut -d' 
 SIZE=$(wc -c < "$IMAGE" | tr -d ' ')
 
 mkdir -p firmware
-cp "$IMAGE" "firmware/$NAME"
+# The image may already be staged, in which case cp would refuse rather than
+# no-op. Comparing resolved paths keeps re-arming the same image idempotent.
+if [ "$(cd "$(dirname "$IMAGE")" && pwd)/$NAME" != "$(pwd)/firmware/$NAME" ]; then
+  cp "$IMAGE" "firmware/$NAME"
+fi
 
 PSQL_USER=$(. ./.env 2>/dev/null; echo "${POSTGRES_USER:-hello}")
 PSQL_DB=$(. ./.env 2>/dev/null; echo "${POSTGRES_DB:-orb}")
