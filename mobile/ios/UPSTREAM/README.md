@@ -16,6 +16,17 @@ nested `.git` was dropped. This directory is what preserves the provenance that
 what the app now is, read that patch. To diff against upstream again, clone
 `hello/suripu-ios` at the commit above.
 
+**The patch is a snapshot of 2026-08-29 and is not regenerated.** It is a record
+of how the tree got here, not a description of the tree now. Two consequences
+worth knowing:
+
+- It has not tracked later work, including the move of `SENSE_API_URL` and the
+  bundle identifiers into `Config/Base.xcconfig`.
+- It therefore still contains the literal identifiers those changes removed from
+  the working tree. If the point of removing them was to keep them out of the
+  repository entirely, this file needs regenerating too, which means cloning
+  upstream at the commit above and re-diffing.
+
 Hello's repositories carry no licence. See the repository NOTICE.
 
 ## What was changed, and roughly why

@@ -64,3 +64,8 @@ xcuserdata/
 # (2,472 files) and `pod install` cannot be relied on to reproduce a 2016-era
 # dependency set. Do not add Pods/ here.
 Pods/.build/
+
+# Local deployment settings: the backend URL this build talks to. The committed
+# Config/Base.xcconfig holds a placeholder and includes this file if it exists,
+# so a personal domain never has to be committed.
+Config/Local.xcconfig

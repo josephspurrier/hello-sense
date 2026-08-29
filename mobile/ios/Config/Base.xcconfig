@@ -1,0 +1,40 @@
+// Deployment settings, kept out of project.pbxproj.
+//
+// SENSE_API_URL is the backend this build talks to. It lives here rather than
+// in the project file so a fork can point at its own server without editing
+// project.pbxproj, and so nobody has to commit a personal domain to a public
+// repository.
+//
+// The value below is a placeholder and will not work. Put your real one in
+// Config/Local.xcconfig, which is gitignored:
+//
+//     cp Config/Local.xcconfig.example Config/Local.xcconfig
+//
+// Note the SLASH indirection. In an xcconfig file "//" starts a comment, with
+// no escape, so a literal URL would be silently truncated to "https:". This is
+// the standard workaround and the reason these files do not simply say
+// https://host.
+
+SLASH = /
+
+SENSE_API_URL = https:$(SLASH)$(SLASH)sense.example.com:8443
+
+// The bundle identifiers. Two of them, because the project ships a test id used
+// by Debug and Dev and a production id used by Release and Beta, and the
+// entitlements file lists both so that one file serves every configuration.
+//
+// Keep them as two variables even if you only ever build one. Templating
+// Extensions/RoomConditions/Sense.entitlements, which still spells these out six
+// times, needs both names to exist. See BUILDING.md, "Identifiers still in the
+// repository".
+SENSE_APP_ID_PROD = com.example.sense
+SENSE_APP_ID_TEST = com.example.sensetest
+
+SENSE_APP_ID = $(SENSE_APP_ID_PROD)
+SENSE_APP_ID[config=Debug] = $(SENSE_APP_ID_TEST)
+SENSE_APP_ID[config=Dev] = $(SENSE_APP_ID_TEST)
+
+// Last, so it wins: assignments later in an xcconfig override earlier ones.
+// "#include?" does not fail when the file is absent, which is what lets a fresh
+// clone build without any local setup.
+#include? "Local.xcconfig"

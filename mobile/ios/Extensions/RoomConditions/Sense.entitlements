@@ -1,6 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+<!--
+  NOT YET PARAMETERISED. Every other copy of the bundle identifier moved to
+  Config/Base.xcconfig, overridden by the gitignored Config/Local.xcconfig, so a
+  fork does not have to commit its own identifiers. These six are the exception,
+  and they are deliberately still literal.
+
+  Two reasons. This file lists BOTH identifier families on purpose, so one
+  entitlements file serves every configuration, which a single $(SENSE_APP_ID)
+  cannot reproduce; it needs $(SENSE_APP_ID_PROD) and $(SENSE_APP_ID_TEST),
+  which are already defined in Base.xcconfig for exactly that reason. And
+  entitlements feed code signing, where a wrong value does not fail the build:
+  the app installs and then cannot reach the keychain or the shared container,
+  which looks like being mysteriously logged out or an empty widget.
+
+  Xcode does expand build settings here, as $(AppIdentifierPrefix) below shows,
+  so the change is mechanical. It just has to be verified on the signed product
+  rather than in the source:
+
+      codesign -d --entitlements :- <path>/Sense.app
+      codesign -d --entitlements :- <path>/Sense.app/PlugIns/RoomConditionsExtension.appex
+
+  diffed against the values below. See BUILDING.md.
+-->
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>

@@ -1,0 +1,22 @@
+// Copy to Config/Local.xcconfig and set your own backend.
+//
+//     cp Config/Local.xcconfig.example Config/Local.xcconfig
+//
+// Config/Local.xcconfig is gitignored. Config/Base.xcconfig includes it last,
+// so whatever you set here overrides the placeholder.
+//
+// SLASH is defined in Base.xcconfig. Use it instead of writing "//", which an
+// xcconfig treats as the start of a comment.
+//
+// The port is 8443 rather than 443 in the reference deployment because the
+// Sense owns 443 on the same host: its firmware hardcodes that port and offers
+// a single cipher no modern TLS terminator will accept. If your backend is
+// somewhere else, or the device is not on it, 443 is fine.
+
+SENSE_API_URL = https:$(SLASH)$(SLASH)sense.example.com:8443
+
+// Your bundle identifiers. These must match App IDs that exist in your Apple
+// Developer account, along with the four `group.` app groups derived from them
+// (.settings and .data for each), or signing will fail.
+SENSE_APP_ID_PROD = com.example.sense
+SENSE_APP_ID_TEST = com.example.sensetest

@@ -65,8 +65,12 @@
         <string>4NUQLB9Q27</string>
         <key>ORB_APNS_TEAM</key>
         <string>FCYLFD2LML</string>
+        <!-- The app's bundle identifier. Set to whatever you build the iOS
+             app with: SENSE_APP_ID_TEST for a Debug or Dev build,
+             SENSE_APP_ID_PROD for Release or Beta. See
+             mobile/ios/BUILDING.md. -->
         <key>ORB_APNS_TOPIC</key>
-        <string>com.josephspurrier.sensetest</string>
+        <string>com.example.sensetest</string>
     </dict>
 
     <key>RunAtLoad</key>

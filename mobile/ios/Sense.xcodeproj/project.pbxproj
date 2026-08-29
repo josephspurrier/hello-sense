@@ -611,6 +611,7 @@
 		6003F5B7195388D20070C39A /* Tests-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Tests-Info.plist"; sourceTree = "<group>"; };
 		6003F5B9195388D20070C39A /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		606FC2411953D9B200FFA9A0 /* Tests-Prefix.pch */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Tests-Prefix.pch"; sourceTree = "<group>"; };
+		A1B2C3D40000000000BASE01 /* Base.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Base.xcconfig"; path = "Config/Base.xcconfig"; sourceTree = "<group>"; };
 		645CDA400FCEFAF1CE273637 /* Pods-SenseApp-Sense.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-SenseApp-Sense.debug.xcconfig"; path = "Pods/Target Support Files/Pods-SenseApp-Sense/Pods-SenseApp-Sense.debug.xcconfig"; sourceTree = "<group>"; };
 		8A03386A1974AFD800BE8327 /* Podfile */ = {isa = PBXFileReference; explicitFileType = text.script.ruby; fileEncoding = 4; name = Podfile; path = ../Podfile; sourceTree = "<group>"; xcLanguageSpecificationIdentifier = xcode.lang.ruby; };
 		8A03386C197DD2D300BE8327 /* HEMSettingsTableViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = HEMSettingsTableViewController.h; sourceTree = "<group>"; };
@@ -2136,6 +2137,7 @@
 			isa = PBXGroup;
 			children = (
 				6003F58B195388D20070C39A /* Products */,
+				A1B2C3D40000000000BASE01 /* Base.xcconfig */,
 				645CDA400FCEFAF1CE273637 /* Pods-SenseApp-Sense.debug.xcconfig */,
 				B17615B39D25C4F006BA0C14 /* Pods-SenseApp-Sense.release.xcconfig */,
 				541055DBD085814436590F0F /* Pods-SenseApp-Sense.beta.xcconfig */,
@@ -4075,7 +4077,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Disables ATS in debug builds. Can't do this with the plist preprocessor unfortuantely.\nINFOPLIST=\"${TARGET_BUILD_DIR}\"/\"${INFOPLIST_PATH}\"\ncase \"${CONFIGURATION}\" in\n\"Release\"|\"Adhoc\")\n/usr/libexec/PlistBuddy -c \"Set :NSAppTransportSecurity:NSAllowsArbitraryLoads NO\" \"${INFOPLIST}\"\n;;\n\"Debug\"|\"Dev\"|\"Beta\")\n/usr/libexec/PlistBuddy -c \"Set :NSAppTransportSecurity:NSAllowsArbitraryLoads YES\" \"${INFOPLIST}\"\n;;\nesac";
+			shellScript = "# ATS stays ON for every configuration. It used to be disabled for Debug/Dev/Beta because the API was plain HTTP on a LAN address; it is now HTTPS with a certificate from a public CA, so there is nothing left to make an exception for.\nINFOPLIST=\"${TARGET_BUILD_DIR}\"/\"${INFOPLIST_PATH}\"\ncase \"${CONFIGURATION}\" in\n\"Release\"|\"Adhoc\")\n/usr/libexec/PlistBuddy -c \"Set :NSAppTransportSecurity:NSAllowsArbitraryLoads NO\" \"${INFOPLIST}\"\n;;\n\"Debug\"|\"Dev\"|\"Beta\")\n/usr/libexec/PlistBuddy -c \"Set :NSAppTransportSecurity:NSAllowsArbitraryLoads NO\" \"${INFOPLIST}\"\n;;\nesac";
 		};
 		BCFB48C5F28390136A6D1C87 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -4766,6 +4768,7 @@
 /* Begin XCBuildConfiguration section */
 		6003F5BD195388D20070C39A /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1B2C3D40000000000BASE01 /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES = YES;
@@ -4815,18 +4818,16 @@
 				PRODUCT_NAME = Sense;
 				SDKROOT = iphoneos;
 				SENSE_ANALYTICS_TOKEN = "";
-				SENSE_API_URL = "http://192.168.0.43:9999";
-				SENSE_APP_ID = com.josephspurrier.sensetest;
 				SENSE_APP_NAME = Sense;
 				SENSE_APP_REVIEW_URL = "http://itunes.apple.com/WebObjects/MZStore.woa/wa/viewContentsUserReviews?id=942698761&pageNumber=0&sortOrdering=2&type=Purple+Software&mt=8";
 				SENSE_CLIENT_ID = iphone_pill;
 				SENSE_CRASH_REPORT_TOKEN = "";
 				SENSE_ENV = Development;
-				SENSE_KEYCHAIN_GROUP = "$(DEVELOPMENT_TEAM).com.josephspurrier.sensetest";
-				SENSE_LOCAL_STORAGE_GROUP = group.com.josephspurrier.sensetest.data;
+				SENSE_KEYCHAIN_GROUP = "$(DEVELOPMENT_TEAM).$(SENSE_APP_ID)";
+				SENSE_LOCAL_STORAGE_GROUP = "group.$(SENSE_APP_ID).data";
 				SENSE_PASSWORD_RESET_URL = "http://account-staging-zpbsmunavw.elasticbeanstalk.com/reset";
 				SENSE_ROOM_CONDITIONS_EXT_SCHEME = sensetest;
-				SENSE_SETTINGS_GROUP = group.com.josephspurrier.sensetest.settings;
+				SENSE_SETTINGS_GROUP = "group.$(SENSE_APP_ID).settings";
 				SENSE_SUPPORT_OPTIONS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -4834,6 +4835,7 @@
 		};
 		6003F5BE195388D20070C39A /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1B2C3D40000000000BASE01 /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES = YES;
@@ -4874,18 +4876,16 @@
 				PRODUCT_NAME = Sense;
 				SDKROOT = iphoneos;
 				SENSE_ANALYTICS_TOKEN = "";
-				SENSE_API_URL = "https://api.hello.is";
-				SENSE_APP_ID = com.josephspurrier.sense;
 				SENSE_APP_NAME = Sense;
 				SENSE_APP_REVIEW_URL = "http://itunes.apple.com/WebObjects/MZStore.woa/wa/viewContentsUserReviews?id=942698761&pageNumber=0&sortOrdering=2&type=Purple+Software&mt=8";
 				SENSE_CLIENT_ID = "cbaf8aaf-609a-46f8-98d9-292d5376a6b7";
 				SENSE_CRASH_REPORT_TOKEN = "";
 				SENSE_ENV = Store;
-				SENSE_KEYCHAIN_GROUP = "$(DEVELOPMENT_TEAM).com.josephspurrier.sense";
-				SENSE_LOCAL_STORAGE_GROUP = group.com.josephspurrier.sense.data;
+				SENSE_KEYCHAIN_GROUP = "$(DEVELOPMENT_TEAM).$(SENSE_APP_ID)";
+				SENSE_LOCAL_STORAGE_GROUP = "group.$(SENSE_APP_ID).data";
 				SENSE_PASSWORD_RESET_URL = "https://account.hello.is/reset";
 				SENSE_ROOM_CONDITIONS_EXT_SCHEME = sense;
-				SENSE_SETTINGS_GROUP = group.com.josephspurrier.sense.settings;
+				SENSE_SETTINGS_GROUP = "group.$(SENSE_APP_ID).settings";
 				SENSE_SUPPORT_OPTIONS = NO;
 				SWIFT_OPTIMIZATION_LEVEL = "-Owholemodule";
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -4950,7 +4950,6 @@
 				PILL_FIRMWARE_URL = "https://s3.amazonaws.com/hello-firmware/kodobannin/mobile/pill.bin";
 				PRODUCT_BUNDLE_IDENTIFIER = "${SENSE_APP_ID}";
 				SENSE_ANALYTICS_TOKEN = "";
-				SENSE_API_URL = "http://192.168.0.43:9999";
 				SENSE_CLIENT_ID = iphone_pill;
 				SENSE_CRASH_REPORT_TOKEN = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "SleepModel/Sense-Bridging-Header.h";
@@ -5026,7 +5025,6 @@
 				PILL_FIRMWARE_URL = "";
 				PRODUCT_BUNDLE_IDENTIFIER = "${SENSE_APP_ID}";
 				SENSE_ANALYTICS_TOKEN = "";
-				SENSE_API_URL = "https://api.hello.is";
 				SENSE_APP_REVIEW_URL = "http://itunes.apple.com/WebObjects/MZStore.woa/wa/viewContentsUserReviews?id=942698761&pageNumber=0&sortOrdering=2&type=Purple+Software&mt=8";
 				SWIFT_OBJC_BRIDGING_HEADER = "SleepModel/Sense-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -5212,7 +5210,7 @@
 					"$(inherited)",
 					"-ObjC",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.josephspurrier.sensetest.Widget;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(SENSE_APP_ID).Widget";
 				PRODUCT_NAME = RoomConditionsExtension;
 				SENSE_ROOM_CONDITIONS_NAME = Sense;
 				SKIP_INSTALL = YES;
@@ -5271,7 +5269,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				MTL_ENABLE_DEBUG_INFO = NO;
-				PRODUCT_BUNDLE_IDENTIFIER = com.josephspurrier.sense.Widget;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(SENSE_APP_ID).Widget";
 				PRODUCT_NAME = RoomConditionsExtension;
 				SENSE_ROOM_CONDITIONS_NAME = Sense;
 				SKIP_INSTALL = YES;
@@ -5281,6 +5279,7 @@
 		};
 		BFCCF5451A69F92200D842F9 /* Beta */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1B2C3D40000000000BASE01 /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES = YES;
@@ -5322,18 +5321,16 @@
 				PRODUCT_NAME = Sense;
 				SDKROOT = iphoneos;
 				SENSE_ANALYTICS_TOKEN = "";
-				SENSE_API_URL = "https://api.hello.is";
-				SENSE_APP_ID = com.josephspurrier.sense;
 				SENSE_APP_NAME = Sense;
 				SENSE_APP_REVIEW_URL = "http://itunes.apple.com/WebObjects/MZStore.woa/wa/viewContentsUserReviews?id=942698761&pageNumber=0&sortOrdering=2&type=Purple+Software&mt=8";
 				SENSE_CLIENT_ID = "cbaf8aaf-609a-46f8-98d9-292d5376a6b7";
 				SENSE_CRASH_REPORT_TOKEN = "";
 				SENSE_ENV = Beta;
-				SENSE_KEYCHAIN_GROUP = "$(DEVELOPMENT_TEAM).com.josephspurrier.sense";
-				SENSE_LOCAL_STORAGE_GROUP = group.com.josephspurrier.sense.data;
+				SENSE_KEYCHAIN_GROUP = "$(DEVELOPMENT_TEAM).$(SENSE_APP_ID)";
+				SENSE_LOCAL_STORAGE_GROUP = "group.$(SENSE_APP_ID).data";
 				SENSE_PASSWORD_RESET_URL = "https://account.hello.is/reset";
 				SENSE_ROOM_CONDITIONS_EXT_SCHEME = sense;
-				SENSE_SETTINGS_GROUP = group.com.josephspurrier.sense.settings;
+				SENSE_SETTINGS_GROUP = "group.$(SENSE_APP_ID).settings";
 				SENSE_SUPPORT_OPTIONS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
@@ -5516,7 +5513,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				MTL_ENABLE_DEBUG_INFO = NO;
-				PRODUCT_BUNDLE_IDENTIFIER = com.josephspurrier.sense.Widget;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(SENSE_APP_ID).Widget";
 				PRODUCT_NAME = RoomConditionsExtension;
 				SENSE_ROOM_CONDITIONS_NAME = Sense;
 				SKIP_INSTALL = YES;
@@ -5526,6 +5523,7 @@
 		};
 		BFCE1D351AA69C470076E855 /* Dev */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A1B2C3D40000000000BASE01 /* Base.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES = YES;
@@ -5567,18 +5565,16 @@
 				PRODUCT_NAME = Sense;
 				SDKROOT = iphoneos;
 				SENSE_ANALYTICS_TOKEN = "";
-				SENSE_API_URL = "http://192.168.0.43:9999";
-				SENSE_APP_ID = com.josephspurrier.sensetest;
 				SENSE_APP_NAME = Sense;
 				SENSE_APP_REVIEW_URL = "http://itunes.apple.com/WebObjects/MZStore.woa/wa/viewContentsUserReviews?id=942698761&pageNumber=0&sortOrdering=2&type=Purple+Software&mt=8";
 				SENSE_CLIENT_ID = iphone_pill;
 				SENSE_CRASH_REPORT_TOKEN = "";
 				SENSE_ENV = Development;
-				SENSE_KEYCHAIN_GROUP = "$(DEVELOPMENT_TEAM).com.josephspurrier.sensetest";
-				SENSE_LOCAL_STORAGE_GROUP = group.com.josephspurrier.sensetest.data;
+				SENSE_KEYCHAIN_GROUP = "$(DEVELOPMENT_TEAM).$(SENSE_APP_ID)";
+				SENSE_LOCAL_STORAGE_GROUP = "group.$(SENSE_APP_ID).data";
 				SENSE_PASSWORD_RESET_URL = "http://account-staging-zpbsmunavw.elasticbeanstalk.com/reset";
 				SENSE_ROOM_CONDITIONS_EXT_SCHEME = sensetest;
-				SENSE_SETTINGS_GROUP = group.com.josephspurrier.sensetest.settings;
+				SENSE_SETTINGS_GROUP = "group.$(SENSE_APP_ID).settings";
 				SENSE_SUPPORT_OPTIONS = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
@@ -5641,7 +5637,6 @@
 				PILL_FIRMWARE_URL = "https://s3.amazonaws.com/hello-firmware/kodobannin/mobile/pill.bin";
 				PRODUCT_BUNDLE_IDENTIFIER = "${SENSE_APP_ID}";
 				SENSE_ANALYTICS_TOKEN = "";
-				SENSE_API_URL = "http://192.168.0.43:9999";
 				SWIFT_OBJC_BRIDGING_HEADER = "SleepModel/Sense-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -5761,7 +5756,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @executable_path/../../Frameworks";
 				LIBRARY_SEARCH_PATHS = "$(inherited)";
 				MTL_ENABLE_DEBUG_INFO = NO;
-				PRODUCT_BUNDLE_IDENTIFIER = com.josephspurrier.sensetest.Widget;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(SENSE_APP_ID).Widget";
 				PRODUCT_NAME = RoomConditionsExtension;
 				SENSE_ROOM_CONDITIONS_NAME = Sense;
 				SKIP_INSTALL = YES;

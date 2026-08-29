@@ -8,6 +8,7 @@
 
 #import "HEMSelectHostPresenter.h"
 #import "HEMNonsenseScanService.h"
+#import "HEMConfig.h"
 
 NS_ENUM(NSUInteger) {
     SectionApiHosts = 0,
@@ -41,23 +42,25 @@ static NSString* const HostCellIdentifier = @"HostCellIdentifier";
         self.service = service;
         self.service.delegate = self;
         
-        // The hello.is hosts are long gone; the local entry points at ORB on
-        // :9999, reachable over the LAN. (It is not suripu-app, which an
-        // earlier version of this comment claimed: that is :9997, and orb
-        // falls back to it for the routes it has not taken over.) Plain HTTP,
-        // which only loads because the ATS build phase sets
-        // NSAllowsArbitraryLoads for Debug/Dev/Beta configurations.
+        // The hello.is hosts are long gone and are kept only so the picker
+        // still shows what the original app shipped with.
         //
-        // THIS IS A DHCP ADDRESS AND IT WILL GO STALE. It has to match
-        // SENSE_API_URL in the four build configurations and the REDIRECT_IP
-        // in working-files/dns_server.py, which is what points the Sense at
-        // the same machine. When the whole app suddenly cannot load and orb
-        // looks healthy, this is the first thing to check. The durable fix is
-        // a DHCP reservation for the Mac on the router.
-        self.apiHosts = @[@"http://192.168.0.43:9999",
-                          @"https://dev-api.hello.is",
-                          @"https://canary-api.hello.is",
-                          @"https://api.hello.is"];
+        // The first entry is whatever this build was configured with, read from
+        // the same Info.plist key the app itself uses rather than written out
+        // again here. It used to be a hardcoded LAN address that had to be kept
+        // in step with four build configurations by hand, and went stale every
+        // time DHCP felt like it. Now there is one source of truth:
+        // SENSE_API_URL in Config/Base.xcconfig, overridden by
+        // Config/Local.xcconfig.
+        NSString* configuredHost = [HEMConfig stringForConfig:HEMConfAPIURL];
+        NSMutableArray* hosts = [NSMutableArray array];
+        if ([configuredHost length] > 0) {
+            [hosts addObject:configuredHost];
+        }
+        [hosts addObjectsFromArray:@[@"https://dev-api.hello.is",
+                                     @"https://canary-api.hello.is",
+                                     @"https://api.hello.is"]];
+        self.apiHosts = hosts;
         self.nonsenseHosts = [NSMutableArray array];
     }
     return self;
