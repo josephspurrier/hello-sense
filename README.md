@@ -9,6 +9,27 @@ algorithms are Hello's own, kept in Java and run unchanged; everything around
 them was rewritten. The original backend was sixteen containers across four
 languages. It is now three components.
 
+## It works
+
+The original iOS app, unmodified in every way that matters, talking to a backend
+that is entirely new. No Hello servers are involved in any of these.
+
+<table>
+<tr>
+<td align="center"><img src="docs/images/timeline.png" width="240" alt="Last Night timeline showing a sleep score of 82"></td>
+<td align="center"><img src="docs/images/trends.png" width="240" alt="Weekly trends: sleep score and duration"></td>
+<td align="center"><img src="docs/images/room-conditions.png" width="240" alt="Room conditions: temperature, humidity and light"></td>
+</tr>
+<tr>
+<td align="center"><b>Timeline</b><br>score, sleep and wake events</td>
+<td align="center"><b>Trends</b><br>scores and duration by week</td>
+<td align="center"><b>Room conditions</b><br>live sensor history</td>
+</tr>
+</table>
+
+The timeline events, the score, and the sensor history are all computed by
+`orb` and `orb-algo` from data the Sense uploaded minutes earlier.
+
 ## Repository layout
 
 ```
