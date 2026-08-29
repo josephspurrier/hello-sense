@@ -266,19 +266,30 @@ class HelloHandler(BaseHTTPRequestHandler):
         return self.rfile.read(n) if n > 0 else b""
 
     def _route(self):
-        """Pick an upstream for this request. Returns (base_url, path, label)."""
-        host = (self.headers.get("Host") or "").lower()
+        """Pick an upstream for this request. Returns (base_url, path, label).
 
-        if "time.hello.is" in host or "ntp.hello.is" in host:
-            # hello-time exposes exactly one route, TimeResource @Path("/"),
-            # so the device's own path is logged but not forwarded.
+        Routes on the FIRST LABEL of the Host, not on the full hello.is names it
+        used to match. A firmware built for your own domain asks for
+        time.example.com, and "time.hello.is" is not a substring of that, so the
+        clock request quietly fell through to the sense upstream. It still
+        worked, because orb recognises a clock request by its device-id header
+        rather than its host, but working by accident is how the two-hour
+        outage in this file's history happened.
+        """
+        host = (self.headers.get("Host") or "").lower().split(":")[0]
+        label = host.split(".")[0]
+
+        if label in ("time", "ntp"):
+            # hello-time exposed exactly one route, TimeResource @Path("/"), so
+            # the device's own path is logged but not forwarded.
             return UPSTREAM_TIME, "/", "hello-time"
 
-        if "messeji" in host or self.path.startswith("/receive"):
+        # startswith, not equality: the dev slot is "messeji-dev".
+        if label.startswith("messeji") or self.path.startswith("/receive"):
             return UPSTREAM_MESSEJI, self.path, "messeji"
 
-        # Everything else is suripu-service: /in/sense/*, /register/*, /audio/*,
-        # /logs, /check, /provision.
+        # Everything else is the device endpoint: /in/sense/*, /register/*,
+        # /audio/*, /logs, /check, /provision, /firmware/*.
         return UPSTREAM_SENSE, self.path, "suripu-service"
 
     def _finish_response(self, payload):
