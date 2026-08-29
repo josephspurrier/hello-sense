@@ -72,7 +72,7 @@ init: ## Create .env and secrets/ from the templates (never overwrites)
 	  cp .env.example .env; \
 	  echo "created .env  <- edit POSTGRES_PASSWORD and the APNS block"; \
 	fi
-	@mkdir -p secrets backups acme
+	@mkdir -p secrets backups acme firmware
 	# 711, not 700. orb runs as uid 10001 and has to traverse this directory to
 	# reach the APNs key; 700 owned by your user means it cannot, and orb
 	# crash-loops on "permission denied" for a file that looks perfectly

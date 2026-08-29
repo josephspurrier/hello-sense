@@ -58,6 +58,11 @@ type Handler struct {
 	// logged, but nothing is written and the device is never answered
 	// authoritatively. Used to validate against live traffic before cutover.
 	ReadOnly bool
+
+	// FirmwareDir is where OTA images are served from. Empty means the
+	// /firmware/ route 404s, which is the default and the right default: a
+	// server that cannot hand out firmware cannot hand out the wrong firmware.
+	FirmwareDir string
 }
 
 func New(s *store.Store, log *slog.Logger) *Handler {
@@ -73,6 +78,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /in/sense/state", h.senseState)
 	mux.HandleFunc("POST /in/sense/files", h.senseFiles)
 	mux.HandleFunc("POST /receive", h.receive)
+	// OTA images. Inert unless FirmwareDir is set; see firmware.go.
+	mux.HandleFunc("GET /firmware/{name}", h.firmware)
 	mux.HandleFunc("/", h.byHost)
 	return mux
 }

@@ -79,6 +79,56 @@ for f in third_party/FreeRTOS/source/portable/MemMang/heap_6.c kitsune/tinyhttp/
   [ -f "$WORK/src/$f" ] || { echo "submodule population failed: missing $f"; exit 1; }
 done
 
+# 2b. Optional: point the DEV endpoint slots at your own domain.
+#
+# The firmware carries TWO sets of endpoints and picks between them at boot from
+# a file on its own flash, which the console command `dev 1` writes and `dev 0`
+# clears (kitsune/wifi_cmd.c, Cmd_setDev / load_data_server). Rewriting the DEV
+# slots rather than the PROD ones therefore buys a firmware that can be switched
+# between your server and the original hello.is names over the serial console,
+# with no reflash and no cable, which makes the rollback from a bad domain a
+# one-line command instead of a disassembly.
+#
+# Unset, nothing is touched and the build stays byte-exact. Set, it is not: the
+# strings differ, so the SHA1 will not match 4513 and the check below is skipped.
+if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then
+  echo ">> rewriting DEV endpoints to *.$KITSUNE_DEV_DOMAIN"
+  command -v python3 >/dev/null || { echo "python3 required for KITSUNE_DEV_DOMAIN"; exit 1; }
+  DOMAIN="$KITSUNE_DEV_DOMAIN" python3 - "$WORK/src" <<'REWRITE'
+import os, re, sys
+root, domain = sys.argv[1], os.environ["DOMAIN"]
+
+ep = os.path.join(root, "kitsune", "endpoints.h")
+s = open(ep).read()
+# Two of each: the file defines them inside an #ifdef USE_SHA2. 4513 compiles
+# the non-SHA2 branch, but rewrite both so this does not silently depend on a
+# build flag that could change underneath it.
+subs = [(r'(#define\s+DEV_DATA_SERVER\s+)"[^"]*"', r'\1"sense-in.%s"' % domain),
+        (r'(#define\s+DEV_MESSEJI_SERVER\s+)"[^"]*"', r'\1"messeji.%s"' % domain)]
+for pat, rep in subs:
+    s, n = re.subn(pat, rep, s)
+    assert n == 2, "endpoints.h: expected 2 matches for %s, got %d" % (pat, n)
+open(ep, "w").write(s)
+
+# TIME_HOST has no DEV twin upstream: it is a plain #define with exactly one use
+# site. Give it one, so `dev 1` switches all three endpoints rather than two and
+# leaves the clock talking to a domain that no longer answers.
+st = os.path.join(root, "kitsune", "sys_time.c")
+s = open(st).read()
+old = '#define TIME_HOST "time.hello.is"'
+assert s.count(old) == 1, "sys_time.c: TIME_HOST not found exactly once"
+new = ('#include <stdbool.h>\n'   # wifi_cmd.h brings in stdint, not stdbool
+       'extern volatile bool use_dev_server;\n'
+       'static char * _time_host(void){\n'
+       '\treturn use_dev_server ? "time.%s" : "time.hello.is";\n'
+       '}\n'
+       '#define TIME_HOST _time_host()' % domain)
+open(st, "w").write(s.replace(old, new))
+print("   endpoints.h and sys_time.c rewritten")
+REWRITE
+  EXPECT_SHA=""   # no longer the 4513 binary, so nothing to compare against
+fi
+
 # 3. Run the full build inside the container.
 echo ">> building (headless CCS under $PLATFORM; ~30-90 min under emulation)..."
 docker run --rm --platform "$PLATFORM" \
@@ -91,8 +141,19 @@ docker run --rm --platform "$PLATFORM" \
   "$IMAGE" bash /root/build_in_container.sh
 
 # 4. Copy result out.
+#
+# A customised build goes to a different name. out/kitsune.bin is the committed
+# byte-exact 4513 reference and overwriting it would quietly destroy the thing
+# every other check in this directory compares against.
 mkdir -p "$HERE/out"
-cp "$WORK/src/kitsune/main/ccs/exe/kitsune.bin" "$HERE/out/kitsune.bin"
-cp "$WORK/src/kitsune/main/ccs/exe/kitsune_reord.out" "$HERE/out/kitsune.out" 2>/dev/null || true
-echo ">> wrote $HERE/out/kitsune.bin"
-( cd "$HERE/out" && shasum kitsune.bin 2>/dev/null || sha1sum kitsune.bin )
+if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then
+  OUT_BIN="$HERE/out/kitsune-custom.bin"
+  OUT_ELF="$HERE/out/kitsune-custom.out"
+else
+  OUT_BIN="$HERE/out/kitsune.bin"
+  OUT_ELF="$HERE/out/kitsune.out"
+fi
+cp "$WORK/src/kitsune/main/ccs/exe/kitsune.bin" "$OUT_BIN"
+cp "$WORK/src/kitsune/main/ccs/exe/kitsune_reord.out" "$OUT_ELF" 2>/dev/null || true
+echo ">> wrote $OUT_BIN"
+( shasum "$OUT_BIN" 2>/dev/null || sha1sum "$OUT_BIN" )

@@ -96,6 +96,9 @@ services:
       ORB_APNS_KEY_ID: ${APNS_KEY_ID:-}
       ORB_APNS_TEAM: ${APNS_TEAM:-}
       ORB_APNS_TOPIC: ${APNS_TOPIC:-}
+      # Empty means the /firmware/ route 404s. Set to /firmware only while an
+      # update is actually being delivered, and clear it afterwards.
+      ORB_FIRMWARE_DIR: ${ORB_FIRMWARE_DIR:-}
     # -api-fallback is deliberately absent. It used to forward unimplemented
     # app API paths to suripu-app; orb now answers everything and suripu-app is
     # gone, so a fallback would only mask a missing route.
@@ -132,6 +135,9 @@ services:
       # relabel it exclusively for whichever container started last. Ignored on
       # hosts without SELinux, so it is safe on macOS.
       - ./secrets:/secrets:ro,z
+      # OTA images, read-only. Inert unless ORB_FIRMWARE_DIR is set: orb will
+      # not serve firmware just because a directory exists.
+      - ./firmware:/firmware:ro,z
     healthcheck:
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:9999/ping"]
       interval: 15s

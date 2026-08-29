@@ -60,3 +60,8 @@ docker-compose.override.yml
 # sense-server. Nothing here is worth committing and the directory is recreated
 # by `make init`.
 acme/
+
+# OTA images staged for delivery. Build artifacts, and a firmware built for your
+# own domain carries your hostnames. Built by
+# sense/firmware/kitsune-4513/rebuild.sh.
+firmware/

@@ -45,7 +45,9 @@ func main() {
 		shadow   = flag.Bool("shadow", false, "parse and verify but never write; for validating against live traffic")
 		algoURL  = flag.String("algo", os.Getenv("ORB_ALGO_URL"), "timeline algorithm service URL; empty disables scoring")
 		noWorker = flag.Bool("no-worker", false, "serve the edge only, run no periodic jobs")
-		debug    = flag.Bool("debug", false, "debug logging")
+		fwDir    = flag.String("firmware-dir", os.Getenv("ORB_FIRMWARE_DIR"),
+			"directory of OTA images to serve at /firmware/{name}; empty disables it")
+		debug = flag.Bool("debug", false, "debug logging")
 
 		// Apple push. All four are required together; with any missing, push is
 		// simply off. Defaults come from the environment so the signing key's
@@ -76,6 +78,13 @@ func main() {
 
 	h := edge.New(st, log)
 	h.ReadOnly = *shadow
+	// Off unless asked for. Serving firmware is the most consequential thing
+	// this process can do, so it takes a deliberate flag rather than a
+	// directory happening to exist.
+	h.FirmwareDir = *fwDir
+	if *fwDir != "" {
+		log.Warn("firmware serving ENABLED", "dir", *fwDir)
+	}
 
 	// The scorer is built here rather than inside the worker, because the app
 	// API needs it too: a timeline correction re-scores its night inside the

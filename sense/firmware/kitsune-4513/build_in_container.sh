@@ -11,7 +11,10 @@
 set -e
 
 KIT_VER="${KIT_VER:-4513}"
-EXPECT_SHA="${EXPECT_SHA:-0c5f639e1290df0e3a5f8641d670923ed71a5e63}"
+# ":-" would treat an explicitly empty value as unset. "-" keeps it empty,
+# which is how a deliberately non-byte-exact build (KITSUNE_DEV_DOMAIN)
+# says "there is nothing to compare against".
+EXPECT_SHA="${EXPECT_SHA-0c5f639e1290df0e3a5f8641d670923ed71a5e63}"
 CG=/root/ti/ccsv6/tools/compiler/ti-cgt-arm_5.1.5   # symlink -> /opt/cgt-5.1.5
 GMAKE=make                                          # GNU Make 4.3 (== CCS's bundled gmake)
 MAKEFILES_TGZ="${MAKEFILES_TGZ:-/root/generated_makefiles.tar.gz}"
@@ -87,6 +90,12 @@ python3 /root/extract_bin.py \
 echo "=== 5. verify ==="
 GOT=$(sha1sum /src/kitsune/main/ccs/exe/kitsune.bin | cut -d' ' -f1)
 echo "  built : $GOT"
+if [ -z "$EXPECT_SHA" ]; then
+  echo "  expect: (none: the source was modified, so this is not build 4513)"
+  echo "  RESULT: BUILT, NOT COMPARED"
+  echo "  size  : $(stat -c %s /src/kitsune/main/ccs/exe/kitsune.bin) bytes"
+  exit 0
+fi
 echo "  expect: $EXPECT_SHA"
 if [ "$GOT" = "$EXPECT_SHA" ]; then
   echo "  RESULT: BYTE-EXACT MATCH"
