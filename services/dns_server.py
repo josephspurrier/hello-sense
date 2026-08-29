@@ -55,6 +55,13 @@ def build_a_response(query, ip):
     resp[2] = 0x81  # QR=1, RD=1
     resp[3] = 0x80  # RA=1
     resp[6:8] = struct.pack("!H", 1)  # one answer
+    # We return only the question and our answer, so the authority and additional
+    # counts must be zeroed. Leaving the query's counts in place promises records
+    # that are not in the packet: a client sending an EDNS0 OPT record (any modern
+    # resolver does; the Sense does not, which is why this stayed hidden) then
+    # reads the reply as malformed.
+    resp[8:10] = struct.pack("!H", 0)  # authority count
+    resp[10:12] = struct.pack("!H", 0)  # additional count
     _, offset = parse_name(query, 12)
     qtype = struct.unpack("!H", query[offset:offset + 2])[0]
     offset += 4  # skip qtype + qclass
