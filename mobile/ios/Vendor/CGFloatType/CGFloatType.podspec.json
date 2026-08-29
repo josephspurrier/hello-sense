@@ -1,0 +1,23 @@
+{
+    "name": "CGFloatType",
+    "version": "1.3.1",
+    "summary": "Conversion and utilities for the CGFloat type",
+    "homepage": "https://github.com/kylef/CGFloatType",
+    "license": {
+        "type": "BSD",
+        "file": "LICENSE"
+    },
+    "authors": {
+        "Kyle Fuller": "kyle@fuller.li"
+    },
+    "source": {
+        "git": "https://github.com/kylef/CGFloatType.git",
+        "tag": "1.3.1"
+    },
+    "platforms": {
+        "ios": "15.0"
+    },
+    "requires_arc": true,
+    "source_files": "CGFloatType/*.{h,m}",
+    "public_header_files": "CGFloatType/*.h"
+}

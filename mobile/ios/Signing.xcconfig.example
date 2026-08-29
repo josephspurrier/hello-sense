@@ -1,0 +1,29 @@
+// Optional local overrides. Copy to Signing.xcconfig, which is gitignored.
+//
+// NOT wired into the project by default, and deliberately so: nothing the
+// project currently carries is a credential (see BUILDING.md), so wiring this
+// in would mean editing 20+ build configurations to solve a problem that does
+// not exist. It is here for the case where you want to build with your own
+// Apple team and your own server without touching project.pbxproj, which is a
+// merge-hostile file.
+//
+// To adopt it: in Xcode, select the project, then Info, then set this file as
+// the Configuration File for each configuration, and delete the corresponding
+// literals from Build Settings.
+
+// Your Apple Developer Team ID, 10 characters.
+DEVELOPMENT_TEAM = XXXXXXXXXX
+
+// Where orb is reachable. The app is built with ATS disabled for Debug/Dev, so
+// a plain http:// LAN address works. Over the internet this must be https://.
+SENSE_API_URL = http://192.168.0.1:9999
+
+// The OAuth client id, matching a row in orb's oauth_applications table.
+// This is a PUBLIC OAuth client: the app sends no client secret, so this value
+// is not confidential and is extractable from any build.
+SENSE_CLIENT_ID = your-client-id
+
+// Third-party analytics and crash reporting. Left empty: both call sites check
+// the length and skip initialisation, so empty means simply off.
+SENSE_ANALYTICS_TOKEN =
+SENSE_CRASH_REPORT_TOKEN =

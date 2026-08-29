@@ -1,5 +1,7 @@
 # services: the local cloud replacement for the Sense
 
+*Part of [Reviving the Hello Sense Sleep System](../README.md).*
+
 These are the Python services that stand in for Hello's shut-down cloud so a
 **Sense** hub can talk to a server on your LAN over its own WiFi + HTTPS.
 

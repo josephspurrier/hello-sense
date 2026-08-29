@@ -1,0 +1,105 @@
+source 'https://cdn.cocoapods.org/'
+platform :ios, '15.0'
+use_frameworks!
+
+# Hello's private pods and two third-party forks resolved over
+# git@github.com:hello/... from repos that no longer exist. They are vendored
+# under Vendor/ with their original podspecs and referenced by :path, so
+# resolution is fully offline for everything that cannot be re-fetched.
+def vendored_pods
+    pod 'SenseKit',                 :path => 'Vendor/SenseKit'
+    pod 'SHSProtoBuf',              :path => 'Vendor/SHSProtoBuf'
+    pod 'LGBluetooth',              :path => 'Vendor/LGBluetooth'
+    pod 'AttributedMarkdown',       :path => 'Vendor/AttributedMarkdown', :inhibit_warnings => true
+    pod 'SORelativeDateTransformer', :path => 'Vendor/SORelativeDateTransformer'
+end
+
+abstract_target 'SenseApp' do
+
+    vendored_pods
+    # CGFloatType's last release is 1.3.1 (2015) and declares its own
+    # CGFLOAT_EPSILON, which the SDK now defines as a macro. Vendored with that
+    # declaration guarded.
+    pod 'CGFloatType', :path => 'Vendor/CGFloatType'
+
+    # the actual Sense iOS app
+    target 'Sense' do
+        pod 'NAPickerView',        :path => 'Vendor/NAPickerView'
+        pod 'SVWebViewController',  :path => 'Vendor/SVWebViewController'
+        # ZendeskSDK was removed. It was a 2016 fat framework whose only arm64
+        # slice is device-built, so it cannot link for the Apple Silicon
+        # simulator, and it pointed at a Zendesk account that no longer exists.
+        # Support now goes through HEMSupportUtil's mail composer.
+
+        pod 'FBSDKLoginKit', '~> 17.0'
+        pod 'FBSDKCoreKit', '~> 17.0'
+        pod 'UIImageEffects', '~> 0.0.1'
+        pod 'UICountingLabel', '~> 1.2.0'
+        pod 'Bugsnag', '~> 6.28'
+        pod 'Analytics', '~> 4.1'
+
+        # Charts 3.0.1 was Swift 3 and cannot be compiled by any current
+        # toolchain. DGCharts is the same project post-rename; the module
+        # import changes from Charts to DGCharts at our ~8 call sites.
+        pod 'DGCharts', '~> 5.1'
+        # 2.1.6 was likewise Swift 3. 4.x is the maintained line and bundles
+        # its own zip handling, so the explicit Zip dependency is dropped.
+        pod 'iOSDFULibrary', '~> 4.15'
+        # Solar's last CocoaPods release is 2.1.0 (2017) and predates a
+        # declared Swift version. The source is a single file of sunrise/sunset
+        # math that is already Swift 5 clean, so it is vendored rather than
+        # pinned to a stale release.
+        pod 'Solar', :path => 'Vendor/Solar'
+    end
+
+    # Room Conditions extension
+    target 'RoomConditionsExtension' do
+
+    end
+
+    # tests for the app
+    target 'Tests' do
+        pod 'Kiwi'
+        pod 'Nocilla'
+        pod 'DGCharts', '~> 5.1'
+    end
+
+end
+
+# Source-level fixes for pods whose upstream releases predate the current SDK
+# and that are not worth vendoring wholesale. Re-applied on every pod install.
+def patch_pod_sources
+    # Both reachability implementations import netinet6/in6.h directly, which
+    # the SDK now marks private. netinet/in.h already includes it on Darwin, so
+    # the import is redundant and can simply be dropped.
+    Dir.glob('Pods/{Analytics,AFNetworking}/**/*.{h,m}').each do |path|
+        body = File.read(path)
+        stripped = body.sub(/^#import <netinet6\/in6\.h>\n/, '')
+        next if stripped == body
+        # CocoaPods installs pod sources read-only.
+        File.chmod(0644, path)
+        File.write(path, stripped)
+        puts "Patched #{File.basename(path)}: removed private netinet6/in6.h import"
+    end
+end
+
+post_install do |installer|
+    patch_pod_sources
+
+    installer.pods_project.targets.each do |target|
+        target.build_configurations.each do |config|
+            # Pods inherit deployment targets as old as iOS 4.3 from their
+            # podspecs, which current Xcode rejects outright.
+            config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+            config.build_settings['ENABLE_BITCODE'] = 'NO'
+            # Several vendored pods predate module maps.
+            config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
+        end
+    end
+
+    ack = 'Pods/Target Support Files/Pods-SenseApp-Sense/Pods-SenseApp-Sense-acknowledgements.plist'
+    if File.exist?(ack)
+        require 'fileutils'
+        FileUtils.cp_r(ack, 'SleepModel/Settings.bundle/Acknowledgements.plist', :remove_destination => true)
+    end
+end

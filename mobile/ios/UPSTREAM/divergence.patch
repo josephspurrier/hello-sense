@@ -1,0 +1,740 @@
+diff --git a/Pods/NAPickerView/NASources/NAPickerView.m b/Pods/NAPickerView/NASources/NAPickerView.m
+index e627519..5d34daf 100644
+--- a/Pods/NAPickerView/NASources/NAPickerView.m
++++ b/Pods/NAPickerView/NASources/NAPickerView.m
+@@ -64,6 +64,26 @@ - (void)configWithFrame:(CGRect)frame
+     self.cellHeight = 70;
+     
+     self.tableView = [[UITableView alloc] initWithFrame:self.bounds style:UITableViewStylePlain];
++    // Exact geometry, not estimates.
++    //
++    // scrollToRowAtIndexPath:...Middle is what centres the selected value, and
++    // with estimated heights UITableView computes that target from estimates for
++    // every row it has not laid out yet, then corrects as cells come into view.
++    // Over the INT16_MAX rows infinite scrolling uses, the leftover error is a
++    // fraction of a cell and it differs per column, because each column's
++    // selected row sits at a different depth: hours land near row 1200, minutes
++    // near 6000. The columns then disagree by that difference and the clock
++    // reads out of line. Estimation only exists to avoid measuring every row and
++    // every row here is a fixed 70pt, so there is nothing to save.
++    // A picker column centres itself with its own header and footer. Letting
++    // UIKit add safe-area insets on top of that shifts the selected row off
++    // centre by the size of the inset.
++    if (@available(iOS 11.0, *)) {
++        self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
++    }
++    self.tableView.estimatedRowHeight = 0;
++    self.tableView.estimatedSectionHeaderHeight = 0;
++    self.tableView.estimatedSectionFooterHeight = 0;
+     self.tableView.delegate = self;
+     self.tableView.dataSource = self;
+     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
+@@ -101,10 +121,36 @@ - (void)layoutSubviews
+ {
+     [super layoutSubviews];
+     CGRect tableFrame = self.tableView.frame;
+-    tableFrame.size.height = CGRectGetHeight(self.bounds);
++    CGFloat height = CGRectGetHeight(self.bounds);
++    BOOL heightChanged = fabs(CGRectGetHeight(tableFrame) - height) > 0.5;
++    tableFrame.size.height = height;
+     self.tableView.frame = tableFrame;
+     self.tableView.backgroundColor = [UIColor clearColor];
+     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
++
++    // Re-centre whenever the geometry moves.
++    //
++    // headerHeight is derived from bounds, and every column is built at the
++    // storyboard's height before being laid out at the device's, so the header
++    // the table cached is the wrong size until it is asked again.
++    //
++    // Columns that scroll hide this, because scrollToRow re-centres them on
++    // every setIndex. A column that never scrolls does not: setIndex returns
++    // early when the index is unchanged, so a 2-item meridiem selected on AM
++    // (row 0, the value it is already on) never scrolls once, and sits wherever
++    // the stale header left it. That is why AM and PM drifted below the digits
++    // while hours and minutes agreed with each other.
++    //
++    // Re-centring here fixes the other half of it too: with content only one
++    // cell taller than the frame, PM could never be scrolled to the middle by
++    // setIndex alone.
++    if (heightChanged) {
++        [self.tableView reloadData];
++        [self.tableView layoutIfNeeded];
++        [self.tableView scrollToRowAtIndexPath:self.currentIndex
++                              atScrollPosition:UITableViewScrollPositionMiddle
++                                      animated:NO];
++    }
+ }
+ 
+ - (CGFloat)headerHeight
+diff --git a/Sense.xcodeproj/project.pbxproj b/Sense.xcodeproj/project.pbxproj
+index f3d2f2e..f694839 100644
+--- a/Sense.xcodeproj/project.pbxproj
++++ b/Sense.xcodeproj/project.pbxproj
+@@ -4815,7 +4815,7 @@
+ 				PRODUCT_NAME = Sense;
+ 				SDKROOT = iphoneos;
+ 				SENSE_ANALYTICS_TOKEN = AnMchQr1VXQhPKjeYuoEEQ7pPRlow9SO;
+-				SENSE_API_URL = "http://192.168.0.17:9999";
++				SENSE_API_URL = "http://192.168.0.43:9999";
+ 				SENSE_APP_ID = com.josephspurrier.sensetest;
+ 				SENSE_APP_NAME = Sense;
+ 				SENSE_APP_REVIEW_URL = "http://itunes.apple.com/WebObjects/MZStore.woa/wa/viewContentsUserReviews?id=942698761&pageNumber=0&sortOrdering=2&type=Purple+Software&mt=8";
+@@ -4950,7 +4950,7 @@
+ 				PILL_FIRMWARE_URL = "https://s3.amazonaws.com/hello-firmware/kodobannin/mobile/pill.bin";
+ 				PRODUCT_BUNDLE_IDENTIFIER = "${SENSE_APP_ID}";
+ 				SENSE_ANALYTICS_TOKEN = AnMchQr1VXQhPKjeYuoEEQ7pPRlow9SO;
+-				SENSE_API_URL = "http://192.168.0.17:9999";
++				SENSE_API_URL = "http://192.168.0.43:9999";
+ 				SENSE_CLIENT_ID = iphone_pill;
+ 				SENSE_CRASH_REPORT_TOKEN = "";
+ 				SWIFT_OBJC_BRIDGING_HEADER = "SleepModel/Sense-Bridging-Header.h";
+@@ -5567,7 +5567,7 @@
+ 				PRODUCT_NAME = Sense;
+ 				SDKROOT = iphoneos;
+ 				SENSE_ANALYTICS_TOKEN = AnMchQr1VXQhPKjeYuoEEQ7pPRlow9SO;
+-				SENSE_API_URL = "http://192.168.0.17:9999";
++				SENSE_API_URL = "http://192.168.0.43:9999";
+ 				SENSE_APP_ID = com.josephspurrier.sensetest;
+ 				SENSE_APP_NAME = Sense;
+ 				SENSE_APP_REVIEW_URL = "http://itunes.apple.com/WebObjects/MZStore.woa/wa/viewContentsUserReviews?id=942698761&pageNumber=0&sortOrdering=2&type=Purple+Software&mt=8";
+@@ -5641,7 +5641,7 @@
+ 				PILL_FIRMWARE_URL = "https://s3.amazonaws.com/hello-firmware/kodobannin/mobile/pill.bin";
+ 				PRODUCT_BUNDLE_IDENTIFIER = "${SENSE_APP_ID}";
+ 				SENSE_ANALYTICS_TOKEN = AnMchQr1VXQhPKjeYuoEEQ7pPRlow9SO;
+-				SENSE_API_URL = "http://192.168.0.17:9999";
++				SENSE_API_URL = "http://192.168.0.43:9999";
+ 				SWIFT_OBJC_BRIDGING_HEADER = "SleepModel/Sense-Bridging-Header.h";
+ 				SWIFT_VERSION = 5.0;
+ 				TARGETED_DEVICE_FAMILY = 1;
+diff --git a/SleepModel/HEMDeviceService.m b/SleepModel/HEMDeviceService.m
+index 21fdb4d..6b7fae8 100644
+--- a/SleepModel/HEMDeviceService.m
++++ b/SleepModel/HEMDeviceService.m
+@@ -374,7 +374,10 @@ - (void)hardFactoryResetSense:(NSString*)senseId completion:(HEMDeviceResetHandl
+             BOOL found = NO;
+             if ([senses count] > 0) {
+                 for (SENSense* scannedSense in senses) {
+-                    if ([[scannedSense deviceId] isEqualToString:senseId]) {
++                    // match on the name when the scan response, and with it the
++                    // advertised device id, never arrived.  See -matchesDeviceId:
++                    if ([scannedSense matchesDeviceId:senseId]) {
++                        [scannedSense adoptDeviceId:senseId];
+                         found = YES;
+                         [strongSelf setSenseManager:[[SENSenseManager alloc] initWithSense:scannedSense]];
+                         [[strongSelf senseManager] setLED:SENSenseLEDStateActivity completion:^(id response, NSError *error) {
+diff --git a/SleepModel/HEMDevicesPresenter.m b/SleepModel/HEMDevicesPresenter.m
+index 332be2c..192e7d9 100644
+--- a/SleepModel/HEMDevicesPresenter.m
++++ b/SleepModel/HEMDevicesPresenter.m
+@@ -99,6 +99,16 @@ - (void)bindWithCollectionView:(UICollectionView*)collectionView {
+     [self refresh];
+ }
+ 
++- (void)didChangeTheme:(Theme *)theme auto:(BOOL)automatically {
++    [super didChangeTheme:theme auto:automatically];
++    // -applyStyle otherwise runs only once, when the collection view is bound,
++    // so switching themes left it (and its superview, which -applyStyle also
++    // paints) on the previous theme's background. That showed as a band of the
++    // wrong theme in the bottom safe area, where the collection view stops.
++    [[self collectionView] applyStyle];
++    [[self collectionView] reloadData];
++}
++
+ - (void)setWaitingForFactoryReset:(BOOL)waitingForFactoryReset {
+     if (_waitingForFactoryReset == waitingForFactoryReset) {
+         return;
+diff --git a/SleepModel/HEMInsightCollectionViewCell.m b/SleepModel/HEMInsightCollectionViewCell.m
+index d97e11f..d037591 100644
+--- a/SleepModel/HEMInsightCollectionViewCell.m
++++ b/SleepModel/HEMInsightCollectionViewCell.m
+@@ -109,6 +109,24 @@ - (void)applyStyle {
+     [[self shareButton] setTintColor:buttonColor];
+     [[self shareButton] setAdjustsImageWhenHighlighted:NO];
+     [[self separator] setBackgroundColor:separatorColor];
++
++    // The view the banner sits in, which the storyboard hardcodes white and
++    // applyStyle never touched.
++    //
++    // It is almost entirely covered: the image view is 30pt taller than this
++    // container and hangs over both edges. What shows is a hairline along the
++    // bottom, where the scaled image's last row blends with whatever is behind
++    // it, and against white that blend reads as a white line under every card.
++    // The detail screen has no such line because it draws the image in a
++    // different container.
++    //
++    // Matching the card's own fill makes the blend invisible instead of trying
++    // to eliminate it, which is the only reliable option when the image is
++    // scaled to a non-integral pixel height. It also stops the container
++    // flashing white before a banner has loaded.
++    UIColor* cardColor = [SenseStyle colorWithAClass:[HEMCardCollectionViewCell class]
++                                            property:ThemePropertyBackgroundColor];
++    [[self imageContainer] setBackgroundColor:cardColor];
+ }
+ 
+ @end
+diff --git a/SleepModel/HEMSelectHostPresenter.m b/SleepModel/HEMSelectHostPresenter.m
+index 0beca85..b4904ee 100644
+--- a/SleepModel/HEMSelectHostPresenter.m
++++ b/SleepModel/HEMSelectHostPresenter.m
+@@ -41,11 +41,20 @@ - (instancetype)initWithService:(HEMNonsenseScanService*)service
+         self.service = service;
+         self.service.delegate = self;
+         
+-        // The hello.is hosts are long gone; the local entry points at
+-        // suripu-app from infrastructure/docker, reachable over the LAN. It is
+-        // plain HTTP, which only loads because the ATS build phase sets
++        // The hello.is hosts are long gone; the local entry points at ORB on
++        // :9999, reachable over the LAN. (It is not suripu-app, which an
++        // earlier version of this comment claimed: that is :9997, and orb
++        // falls back to it for the routes it has not taken over.) Plain HTTP,
++        // which only loads because the ATS build phase sets
+         // NSAllowsArbitraryLoads for Debug/Dev/Beta configurations.
+-        self.apiHosts = @[@"http://192.168.0.17:9999",
++        //
++        // THIS IS A DHCP ADDRESS AND IT WILL GO STALE. It has to match
++        // SENSE_API_URL in the four build configurations and the REDIRECT_IP
++        // in working-files/dns_server.py, which is what points the Sense at
++        // the same machine. When the whole app suddenly cannot load and orb
++        // looks healthy, this is the first thing to check. The durable fix is
++        // a DHCP reservation for the Mac on the router.
++        self.apiHosts = @[@"http://192.168.0.43:9999",
+                           @"https://dev-api.hello.is",
+                           @"https://canary-api.hello.is",
+                           @"https://api.hello.is"];
+diff --git a/SleepModel/HEMSettingsPresenter.m b/SleepModel/HEMSettingsPresenter.m
+index ef3a986..0829561 100644
+--- a/SleepModel/HEMSettingsPresenter.m
++++ b/SleepModel/HEMSettingsPresenter.m
+@@ -149,7 +149,15 @@ - (void)layoutVersionView {
+     CGFloat versionRequiredHeight = CGRectGetHeight([[self versionLabel] frame]);
+     CGFloat contentHeight = totalHeaderHeight + totalRowHeight;
+     
+-    CGFloat tableHeight = CGRectGetHeight([[self tableView] bounds]);
++    // The visible area is the bounds minus the adjusted content inset, not the
++    // bounds. Since iOS 11 that inset carries the navigation bar at the top and
++    // the home indicator at the bottom, so sizing the footer from the raw
++    // bounds made the content exactly one inset-pair taller than the screen and
++    // forced a scroll just to reach the version label.
++    UIEdgeInsets contentInset = [[self tableView] adjustedContentInset];
++    CGFloat tableHeight = CGRectGetHeight([[self tableView] bounds])
++                        - contentInset.top
++                        - contentInset.bottom;
+     CGFloat tableWidth = CGRectGetWidth([[self tableView] bounds]);
+     CGFloat minSpacing = HEMSettingsHeaderFooterSectionHeight;
+     
+diff --git a/SleepModel/HEMSleepGraphViewController.m b/SleepModel/HEMSleepGraphViewController.m
+index eca8f95..aa8db84 100644
+--- a/SleepModel/HEMSleepGraphViewController.m
++++ b/SleepModel/HEMSleepGraphViewController.m
+@@ -430,6 +430,19 @@ - (void)updateTimeOfEventOnSegment:(SENTimelineSegment *)segment {
+         [HEMMainStoryboard instantiateTimelineFeedbackViewController];
+     feedbackController.dateForNightOfSleep = self.dateForNightOfSleep;
+     feedbackController.segment = segment;
++    // Full screen, not the iOS 13 default.
++    //
++    // Without this the style resolves to Automatic, which is a page sheet: a
++    // card inset from the top with rounded corners, sitting in a container the
++    // controller does not own and cannot theme. That container is what shows as
++    // a white bar under the buttons, and theming the controller's own root view
++    // cannot reach it.
++    //
++    // A sheet is also the wrong idiom here. This screen draws its own title and
++    // its own CANCEL/SAVE bar, which is what a full screen modal looked like
++    // before sheets existed; presented as a card it gets both sets of chrome.
++    // The history controller was pinned the same way for the same reason.
++    feedbackController.modalPresentationStyle = UIModalPresentationFullScreen;
+     [self presentViewController:feedbackController animated:YES completion:NULL];
+ }
+ 
+@@ -692,6 +705,7 @@ - (void)shareTimeline:(id)sender {
+ - (void)showTimelineHistory:(UIButton *)sender {
+     self.historyViewController = (id)[HEMMainStoryboard instantiateSleepHistoryController];
+     self.historyViewController.selectedDate = self.dateForNightOfSleep;
++    self.historyViewController.modalPresentationStyle = UIModalPresentationOverFullScreen;
+     self.historyViewController.transitioningDelegate = self.zoomAnimationDelegate;
+     [self presentViewController:self.historyViewController animated:YES completion:NULL];
+ }
+diff --git a/SleepModel/HEMTimelineFeedbackViewController.m b/SleepModel/HEMTimelineFeedbackViewController.m
+index 158b0bb..9dbd18d 100644
+--- a/SleepModel/HEMTimelineFeedbackViewController.m
++++ b/SleepModel/HEMTimelineFeedbackViewController.m
+@@ -58,6 +58,16 @@ - (UIStatusBarStyle)preferredStatusBarStyle {
+ }
+ 
+ - (void)applyStyle {
++    // The root view first. The storyboard hardcodes it white and this controller
++    // is not Themed, so nothing else ever repaints it: SenseStyle's hierarchy
++    // walk only reaches controllers that exist when a theme is applied, and this
++    // one is presented modally long afterwards.
++    //
++    // It shows as a white bar under the buttons, because the button container is
++    // pinned to the bottom layout guide rather than the screen edge and the home
++    // indicator inset leaves a gap. Fill rather than background, so the strip
++    // matches the button container it sits directly beneath.
++    [[self view] applyFillStyle];
+     [self.titleContainerView applyFillStyle];
+     [self.buttonContainerView applyFillStyle];
+     [self.cancelButton applySecondaryStyle];
+diff --git a/SleepModel/HEMZoomAnimationTransitionDelegate.m b/SleepModel/HEMZoomAnimationTransitionDelegate.m
+index 6aebb3b..aa39da8 100644
+--- a/SleepModel/HEMZoomAnimationTransitionDelegate.m
++++ b/SleepModel/HEMZoomAnimationTransitionDelegate.m
+@@ -34,20 +34,16 @@ - (NSTimeInterval)transitionDuration:(id<UIViewControllerContextTransitioning>)t
+ 
+ - (void)animateTransition:(id<UIViewControllerContextTransitioning>)transitionContext
+ {
+-    CGRect windowBounds = HEMKeyWindowBounds();
+     UIView *containerView = [transitionContext containerView];
+     UIViewController *toViewController = [transitionContext viewControllerForKey:UITransitionContextToViewControllerKey];
+     UIViewController *fromViewController = [transitionContext viewControllerForKey:UITransitionContextFromViewControllerKey];
+ 
+-    CGRect finalFrame = [transitionContext finalFrameForViewController:toViewController];
+-
+-    toViewController.view.frame = CGRectOffset(finalFrame, 0, windowBounds.size.height);
+-    toViewController.view.layer.zPosition = 0;
+-    fromViewController.view.layer.zPosition = 1;
+-    [containerView addSubview:toViewController.view];
+-    toViewController.view.frame = finalFrame;
+-
+     if ([toViewController isKindOfClass:[HEMSleepHistoryViewController class]]) {
++        CGRect finalFrame = [transitionContext finalFrameForViewController:toViewController];
++        toViewController.view.frame = finalFrame;
++        toViewController.view.layer.zPosition = 0;
++        fromViewController.view.layer.zPosition = 1;
++        [containerView addSubview:toViewController.view];
+         [self zoomOutToController:toViewController fromController:fromViewController transition:transitionContext];
+     } else if ([fromViewController isKindOfClass:[HEMSleepHistoryViewController class]]) {
+         [self zoomInFromController:fromViewController transition:transitionContext];
+diff --git a/SleepModel/Settings.storyboard b/SleepModel/Settings.storyboard
+index 71936a7..f8b6c55 100644
+--- a/SleepModel/Settings.storyboard
++++ b/SleepModel/Settings.storyboard
+@@ -139,7 +139,7 @@
+                             <constraint firstItem="I9c-fU-Dzh" firstAttribute="leading" secondItem="hN7-aP-ybH" secondAttribute="leading" id="J8n-xG-oHk"/>
+                             <constraint firstItem="AYe-cc-0Ar" firstAttribute="centerX" secondItem="hN7-aP-ybH" secondAttribute="centerX" id="Rhs-c3-nPJ"/>
+                             <constraint firstItem="I9c-fU-Dzh" firstAttribute="top" secondItem="OSE-c4-NFb" secondAttribute="top" id="WJz-ED-XJz"/>
+-                            <constraint firstItem="q11-AX-FYx" firstAttribute="top" secondItem="I9c-fU-Dzh" secondAttribute="bottom" id="ZKV-QO-6lU"/>
++                            <constraint firstAttribute="bottom" secondItem="I9c-fU-Dzh" secondAttribute="bottom" id="ZKV-QO-6lU"/>
+                         </constraints>
+                     </view>
+                     <extendedEdge key="edgesForExtendedLayout" bottom="YES"/>
+@@ -245,7 +245,7 @@
+                         </subviews>
+                         <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                         <constraints>
+-                            <constraint firstItem="tmF-6Q-bI9" firstAttribute="top" secondItem="vXp-yd-Vek" secondAttribute="bottom" id="9mr-ge-Kfs"/>
++                            <constraint firstAttribute="bottom" secondItem="vXp-yd-Vek" secondAttribute="bottom" id="9mr-ge-Kfs"/>
+                             <constraint firstItem="vXp-yd-Vek" firstAttribute="top" secondItem="WYL-wF-vUX" secondAttribute="bottom" id="POC-2j-VDI"/>
+                             <constraint firstItem="6sg-fe-i8P" firstAttribute="centerX" secondItem="xY5-cX-kQ1" secondAttribute="centerX" id="Y9w-SY-FNa"/>
+                             <constraint firstItem="vXp-yd-Vek" firstAttribute="leading" secondItem="xY5-cX-kQ1" secondAttribute="leading" id="tCC-gk-egc"/>
+@@ -426,7 +426,7 @@
+                         </subviews>
+                         <constraints>
+                             <constraint firstAttribute="trailing" secondItem="h9D-gf-jFa" secondAttribute="trailing" id="9mk-Ka-5kn"/>
+-                            <constraint firstItem="BzK-ya-vrK" firstAttribute="top" secondItem="h9D-gf-jFa" secondAttribute="bottom" id="HZF-wZ-Ecf"/>
++                            <constraint firstAttribute="bottom" secondItem="h9D-gf-jFa" secondAttribute="bottom" id="HZF-wZ-Ecf"/>
+                             <constraint firstItem="h9D-gf-jFa" firstAttribute="leading" secondItem="xBv-1F-ckT" secondAttribute="leading" id="MXF-Yh-K47"/>
+                             <constraint firstItem="h9D-gf-jFa" firstAttribute="top" secondItem="jrj-im-u1n" secondAttribute="bottom" id="PNq-ts-c0R"/>
+                             <constraint firstItem="9Kb-PQ-PUr" firstAttribute="centerX" secondItem="xBv-1F-ckT" secondAttribute="centerX" id="j0v-57-X89"/>
+@@ -1066,7 +1066,7 @@
+                         <constraints>
+                             <constraint firstItem="8Kt-N2-2il" firstAttribute="leading" secondItem="jsb-We-iqs" secondAttribute="leading" id="5Xh-hX-WOU"/>
+                             <constraint firstItem="8Kt-N2-2il" firstAttribute="top" secondItem="Xp8-vi-txm" secondAttribute="top" id="7R2-H3-0Pf"/>
+-                            <constraint firstItem="WKH-vN-2DO" firstAttribute="top" secondItem="8Kt-N2-2il" secondAttribute="bottom" id="VNZ-2Z-A4o"/>
++                            <constraint firstAttribute="bottom" secondItem="8Kt-N2-2il" secondAttribute="bottom" id="VNZ-2Z-A4o"/>
+                             <constraint firstAttribute="trailing" secondItem="8Kt-N2-2il" secondAttribute="trailing" id="cTS-iI-6fH"/>
+                         </constraints>
+                     </view>
+@@ -1133,7 +1133,7 @@
+                         <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                         <constraints>
+                             <constraint firstItem="Q82-tX-ITf" firstAttribute="top" secondItem="UOw-Ta-YdF" secondAttribute="top" id="2zD-PN-ete"/>
+-                            <constraint firstItem="nEG-ic-OOx" firstAttribute="top" secondItem="Q82-tX-ITf" secondAttribute="bottom" id="Pul-8Z-FzG"/>
++                            <constraint firstAttribute="bottom" secondItem="Q82-tX-ITf" secondAttribute="bottom" id="Pul-8Z-FzG"/>
+                             <constraint firstAttribute="trailing" secondItem="Q82-tX-ITf" secondAttribute="trailing" id="hOu-0b-MOX"/>
+                             <constraint firstItem="Q82-tX-ITf" firstAttribute="leading" secondItem="Pbr-WC-Gnd" secondAttribute="leading" id="taq-aD-VgZ"/>
+                         </constraints>
+@@ -1705,7 +1705,7 @@
+                         <constraints>
+                             <constraint firstAttribute="trailing" secondItem="SLU-6G-xp0" secondAttribute="trailing" id="1eY-H3-gcR"/>
+                             <constraint firstItem="SLU-6G-xp0" firstAttribute="top" secondItem="thQ-Hm-ax0" secondAttribute="bottom" id="KdS-Li-6fx"/>
+-                            <constraint firstItem="VcF-Vg-Glj" firstAttribute="top" secondItem="SLU-6G-xp0" secondAttribute="bottom" id="bg1-fc-Yuc"/>
++                            <constraint firstAttribute="bottom" secondItem="SLU-6G-xp0" secondAttribute="bottom" id="bg1-fc-Yuc"/>
+                             <constraint firstItem="SLU-6G-xp0" firstAttribute="leading" secondItem="Akm-vr-5BN" secondAttribute="leading" id="fYr-1p-U8N"/>
+                         </constraints>
+                     </view>
+@@ -1772,7 +1772,7 @@
+                             <constraint firstAttribute="trailing" secondItem="NkO-p3-qV8" secondAttribute="trailing" id="K7V-bJ-vZK"/>
+                             <constraint firstItem="NkO-p3-qV8" firstAttribute="leading" secondItem="kSS-ax-pjl" secondAttribute="leading" id="KqQ-KC-c1t"/>
+                             <constraint firstItem="NkO-p3-qV8" firstAttribute="top" secondItem="Oz0-2d-HO9" secondAttribute="bottom" id="eYE-1b-27r"/>
+-                            <constraint firstItem="nNA-mN-VwG" firstAttribute="top" secondItem="NkO-p3-qV8" secondAttribute="bottom" id="y78-ZH-tqt"/>
++                            <constraint firstAttribute="bottom" secondItem="NkO-p3-qV8" secondAttribute="bottom" id="y78-ZH-tqt"/>
+                         </constraints>
+                     </view>
+                     <extendedEdge key="edgesForExtendedLayout" bottom="YES"/>
+@@ -1836,7 +1836,7 @@
+                             <constraint firstAttribute="trailing" secondItem="uf0-pH-cMi" secondAttribute="trailing" id="M1t-1W-L1X"/>
+                             <constraint firstItem="uf0-pH-cMi" firstAttribute="top" secondItem="BaJ-kh-D4S" secondAttribute="bottom" id="TuH-SD-cX6"/>
+                             <constraint firstItem="uf0-pH-cMi" firstAttribute="leading" secondItem="aFK-RB-Ywf" secondAttribute="leading" id="pvz-cV-ANO"/>
+-                            <constraint firstItem="veR-6o-amC" firstAttribute="top" secondItem="uf0-pH-cMi" secondAttribute="bottom" id="zYe-MW-V4Z"/>
++                            <constraint firstAttribute="bottom" secondItem="uf0-pH-cMi" secondAttribute="bottom" id="zYe-MW-V4Z"/>
+                         </constraints>
+                     </view>
+                     <extendedEdge key="edgesForExtendedLayout" bottom="YES"/>
+@@ -2068,7 +2068,7 @@
+                         <color key="backgroundColor" red="0.0" green="0.0" blue="0.0" alpha="0.0" colorSpace="custom" customColorSpace="sRGB"/>
+                         <constraints>
+                             <constraint firstItem="k6g-yu-WXB" firstAttribute="top" secondItem="EdC-6w-bg9" secondAttribute="topMargin" id="JHZ-WP-iOU"/>
+-                            <constraint firstAttribute="bottomMargin" secondItem="k6g-yu-WXB" secondAttribute="bottom" id="YAe-4B-4gX"/>
++                            <constraint firstAttribute="bottom" secondItem="k6g-yu-WXB" secondAttribute="bottom" id="YAe-4B-4gX"/>
+                             <constraint firstItem="k6g-yu-WXB" firstAttribute="leading" secondItem="EdC-6w-bg9" secondAttribute="leading" id="k1W-6H-fPh"/>
+                             <constraint firstAttribute="trailing" secondItem="k6g-yu-WXB" secondAttribute="trailing" id="qGN-ND-8gW"/>
+                         </constraints>
+@@ -2143,7 +2143,7 @@
+                         </subviews>
+                         <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                         <constraints>
+-                            <constraint firstItem="plP-k7-12q" firstAttribute="top" secondItem="9mK-D3-RaE" secondAttribute="bottom" id="Ao4-yg-1dH"/>
++                            <constraint firstAttribute="bottom" secondItem="9mK-D3-RaE" secondAttribute="bottom" id="Ao4-yg-1dH"/>
+                             <constraint firstItem="9mK-D3-RaE" firstAttribute="leading" secondItem="xVb-UO-LX5" secondAttribute="leading" id="GWT-8J-TaY"/>
+                             <constraint firstAttribute="trailing" secondItem="9mK-D3-RaE" secondAttribute="trailing" id="jPj-8U-cnG"/>
+                             <constraint firstItem="9mK-D3-RaE" firstAttribute="top" secondItem="hZ3-bu-Q8a" secondAttribute="bottom" id="nEE-rr-0cc"/>
+@@ -2323,7 +2323,7 @@
+                             <constraint firstItem="5Yh-xC-7Li" firstAttribute="top" secondItem="4ei-f0-u3q" secondAttribute="bottom" id="CWz-2i-tjx"/>
+                             <constraint firstItem="5Yh-xC-7Li" firstAttribute="leading" secondItem="xn5-K3-l3h" secondAttribute="leading" id="G4j-PL-1m1"/>
+                             <constraint firstAttribute="trailing" secondItem="5Yh-xC-7Li" secondAttribute="trailing" id="c0u-PB-YyN"/>
+-                            <constraint firstItem="pLi-F0-O99" firstAttribute="top" secondItem="5Yh-xC-7Li" secondAttribute="bottom" id="iC1-0l-6yV"/>
++                            <constraint firstAttribute="bottom" secondItem="5Yh-xC-7Li" secondAttribute="bottom" id="iC1-0l-6yV"/>
+                         </constraints>
+                     </view>
+                     <extendedEdge key="edgesForExtendedLayout" bottom="YES"/>
+@@ -2442,7 +2442,7 @@
+                         <color key="backgroundColor" red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                         <constraints>
+                             <constraint firstItem="KjT-P0-VW7" firstAttribute="top" secondItem="EMQ-oC-55b" secondAttribute="bottom" id="Ifk-cD-w0h"/>
+-                            <constraint firstItem="8oP-EX-zLx" firstAttribute="top" secondItem="KjT-P0-VW7" secondAttribute="bottom" id="U9I-K8-Ssk"/>
++                            <constraint firstAttribute="bottom" secondItem="KjT-P0-VW7" secondAttribute="bottom" id="U9I-K8-Ssk"/>
+                             <constraint firstAttribute="trailing" secondItem="KjT-P0-VW7" secondAttribute="trailing" id="UjE-0z-vKc"/>
+                             <constraint firstItem="KjT-P0-VW7" firstAttribute="leading" secondItem="d3t-M8-KPn" secondAttribute="leading" id="iQU-r3-AZb"/>
+                         </constraints>
+diff --git a/Vendor/LGBluetooth/LGBluetooth/LGCentralManager.m b/Vendor/LGBluetooth/LGBluetooth/LGCentralManager.m
+index 7c5f0f5..b6aeb70 100755
+--- a/Vendor/LGBluetooth/LGBluetooth/LGCentralManager.m
++++ b/Vendor/LGBluetooth/LGBluetooth/LGCentralManager.m
+@@ -254,8 +254,19 @@ - (void)centralManager:(CBCentralManager *)central
+             // Calculating AVG RSSI
+             lgPeripheral.RSSI = (lgPeripheral.RSSI + [RSSI integerValue]) / 2;
+         }
+-        lgPeripheral.advertisingData = advertisementData;
+-        
++        // Accumulate rather than replace. When duplicates are allowed a device
++        // is reported once per advertising event, and consecutive reports do
++        // not all carry the same keys: a peripheral that splits its payload
++        // across the advertisement and the scan response would otherwise have
++        // the richer dictionary clobbered by a later, sparser one.
++        if (lgPeripheral.advertisingData) {
++            NSMutableDictionary *merged = [lgPeripheral.advertisingData mutableCopy];
++            [merged addEntriesFromDictionary:advertisementData];
++            lgPeripheral.advertisingData = merged;
++        } else {
++            lgPeripheral.advertisingData = advertisementData;
++        }
++
+         if ([self.scannedPeripherals count] >= self.peripheralsCountToStop) {
+             [NSObject cancelPreviousPerformRequestsWithTarget:self
+                                                      selector:@selector(stopScanForPeripherals)
+diff --git a/Vendor/NAPickerView/NASources/NAPickerView.m b/Vendor/NAPickerView/NASources/NAPickerView.m
+index e627519..5d34daf 100644
+--- a/Vendor/NAPickerView/NASources/NAPickerView.m
++++ b/Vendor/NAPickerView/NASources/NAPickerView.m
+@@ -64,6 +64,26 @@ - (void)configWithFrame:(CGRect)frame
+     self.cellHeight = 70;
+     
+     self.tableView = [[UITableView alloc] initWithFrame:self.bounds style:UITableViewStylePlain];
++    // Exact geometry, not estimates.
++    //
++    // scrollToRowAtIndexPath:...Middle is what centres the selected value, and
++    // with estimated heights UITableView computes that target from estimates for
++    // every row it has not laid out yet, then corrects as cells come into view.
++    // Over the INT16_MAX rows infinite scrolling uses, the leftover error is a
++    // fraction of a cell and it differs per column, because each column's
++    // selected row sits at a different depth: hours land near row 1200, minutes
++    // near 6000. The columns then disagree by that difference and the clock
++    // reads out of line. Estimation only exists to avoid measuring every row and
++    // every row here is a fixed 70pt, so there is nothing to save.
++    // A picker column centres itself with its own header and footer. Letting
++    // UIKit add safe-area insets on top of that shifts the selected row off
++    // centre by the size of the inset.
++    if (@available(iOS 11.0, *)) {
++        self.tableView.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
++    }
++    self.tableView.estimatedRowHeight = 0;
++    self.tableView.estimatedSectionHeaderHeight = 0;
++    self.tableView.estimatedSectionFooterHeight = 0;
+     self.tableView.delegate = self;
+     self.tableView.dataSource = self;
+     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
+@@ -101,10 +121,36 @@ - (void)layoutSubviews
+ {
+     [super layoutSubviews];
+     CGRect tableFrame = self.tableView.frame;
+-    tableFrame.size.height = CGRectGetHeight(self.bounds);
++    CGFloat height = CGRectGetHeight(self.bounds);
++    BOOL heightChanged = fabs(CGRectGetHeight(tableFrame) - height) > 0.5;
++    tableFrame.size.height = height;
+     self.tableView.frame = tableFrame;
+     self.tableView.backgroundColor = [UIColor clearColor];
+     self.tableView.separatorStyle = UITableViewCellSeparatorStyleNone;
++
++    // Re-centre whenever the geometry moves.
++    //
++    // headerHeight is derived from bounds, and every column is built at the
++    // storyboard's height before being laid out at the device's, so the header
++    // the table cached is the wrong size until it is asked again.
++    //
++    // Columns that scroll hide this, because scrollToRow re-centres them on
++    // every setIndex. A column that never scrolls does not: setIndex returns
++    // early when the index is unchanged, so a 2-item meridiem selected on AM
++    // (row 0, the value it is already on) never scrolls once, and sits wherever
++    // the stale header left it. That is why AM and PM drifted below the digits
++    // while hours and minutes agreed with each other.
++    //
++    // Re-centring here fixes the other half of it too: with content only one
++    // cell taller than the frame, PM could never be scrolled to the middle by
++    // setIndex alone.
++    if (heightChanged) {
++        [self.tableView reloadData];
++        [self.tableView layoutIfNeeded];
++        [self.tableView scrollToRowAtIndexPath:self.currentIndex
++                              atScrollPosition:UITableViewScrollPositionMiddle
++                                      animated:NO];
++    }
+ }
+ 
+ - (CGFloat)headerHeight
+diff --git a/Vendor/SenseKit/Pod/Classes/BLE/SENSense.h b/Vendor/SenseKit/Pod/Classes/BLE/SENSense.h
+index 26b1f75..5ea99ed 100644
+--- a/Vendor/SenseKit/Pod/Classes/BLE/SENSense.h
++++ b/Vendor/SenseKit/Pod/Classes/BLE/SENSense.h
+@@ -33,4 +33,25 @@ typedef NS_ENUM(NSUInteger, SENSenseAdvertisedVersion) {
+ - (instancetype)initWithPeripheral:(LGPeripheral*)peripheral;
+ - (instancetype)initWithPeripheral:(LGPeripheral*)peripheral andDeviceId:(NSString*)deviceId;
+ 
++/**
++ * Whether this scanned Sense is the one identified by deviceId.
++ *
++ * Prefers the device id carried in the advertised service data. That data can
++ * be absent: Sense splits its advertisement across the advertising packet and
++ * the scan response, and iOS does not always fetch the scan response, leaving
++ * only the local name to go on. In that case the advertised name is matched
++ * instead, which encodes the leading byte of the device id.
++ */
++- (BOOL)matchesDeviceId:(NSString*)deviceId;
++
++/**
++ * Record the device id of a Sense that was matched by name.
++ *
++ * A Sense identified without its advertised service data has no device id of
++ * its own, and the rest of SenseKit needs one: -saveSenseUUID skips the write
++ * without it, which would send every later visit back through a scan instead of
++ * going straight to the known peripheral.
++ */
++- (void)adoptDeviceId:(NSString*)deviceId;
++
+ @end
+diff --git a/Vendor/SenseKit/Pod/Classes/BLE/SENSense.m b/Vendor/SenseKit/Pod/Classes/BLE/SENSense.m
+index 456cfdf..b5eeae7 100644
+--- a/Vendor/SenseKit/Pod/Classes/BLE/SENSense.m
++++ b/Vendor/SenseKit/Pod/Classes/BLE/SENSense.m
+@@ -11,6 +11,8 @@
+ 
+ static unsigned char const kSENSenseVoiceByte = 0x22;
+ static NSInteger const kSENSenseVoiceHwVersionLoc = 2;
++static NSString* const kSENSenseNamePrefix = @"Sense-";
++static NSUInteger const kSENSenseNameIdCharacters = 2;
+ 
+ @interface SENSense()
+ 
+@@ -138,6 +140,33 @@ - (NSString*)name {
+     return [[self peripheral] name];
+ }
+ 
++- (void)adoptDeviceId:(NSString*)deviceId {
++    if ([[self deviceId] length] == 0) {
++        [self setDeviceId:deviceId];
++    }
++}
++
++- (BOOL)matchesDeviceId:(NSString*)deviceId {
++    if ([deviceId length] == 0) {
++        return NO;
++    }
++
++    if ([[self deviceId] length] > 0) {
++        return [[[self deviceId] lowercaseString] isEqualToString:[deviceId lowercaseString]];
++    }
++
++    // No advertised device id, so fall back to the local name. Sense names
++    // itself after the leading byte of its device id, e.g. 49F277D951568DF3
++    // advertises as "Sense-49".
++    if ([deviceId length] < kSENSenseNameIdCharacters) {
++        return NO;
++    }
++
++    NSString* idPrefix = [deviceId substringToIndex:kSENSenseNameIdCharacters];
++    NSString* expectedName = [kSENSenseNamePrefix stringByAppendingString:idPrefix];
++    return [[self name] caseInsensitiveCompare:expectedName] == NSOrderedSame;
++}
++
+ - (NSString*)description {
+     return [NSString stringWithFormat:@"Sense: %@, mac: %@, in mode: %ld, id: %@",
+             [self name], [self macAddress], (long)[self mode], [self deviceId]];
+diff --git a/Vendor/SenseKit/Pod/Classes/BLE/SENSenseManager.m b/Vendor/SenseKit/Pod/Classes/BLE/SENSenseManager.m
+index fc8320a..02b67ae 100644
+--- a/Vendor/SenseKit/Pod/Classes/BLE/SENSenseManager.m
++++ b/Vendor/SenseKit/Pod/Classes/BLE/SENSenseManager.m
+@@ -32,6 +32,10 @@
+ 
+ static NSString* const kSENSenseErrorDomain = @"is.hello.ble";
+ static NSString* const kSENSenseServiceID = @"0000FEE1-1212-EFDE-1523-785FEABCD123";
++// the advertised service data is keyed by the 16 bit form of the same service.
++// CBUUID shortens Bluetooth-base UUIDs, so this can arrive as either form.
++static NSString* const kSENSenseServiceDataId = @"FEE1";
++static NSString* const kSENSenseNamePrefix = @"Sense-";
+ static NSString* const kSENSenseCharacteristicInputId = @"BEEB";
+ static NSString* const kSENSenseCharacteristicResponseId = @"B00B";
+ static NSInteger const kSENSensePacketSize = 20;
+@@ -120,31 +124,77 @@ + (BOOL)scanForSense:(void(^)(NSArray* senses))completion {
+                               completion:completion];
+ }
+ 
++/**
++ * Sense advertises more than a legacy 31 byte advertisement can hold (flags,
++ * local name, the 128 bit service UUID and the service data carrying the device
++ * id come to 43 bytes), so part of it arrives in the scan response instead.
++ *
++ * iOS hands the scanForPeripheralsWithServices: filter to the Bluetooth
++ * controller, which only matches the advertising packet, so filtering on the
++ * service UUID silently discards Sense. macOS merges the advertisement and the
++ * scan response before filtering, which is why the same filter works there and
++ * made this look like a phone-side radio problem.
++ *
++ * Scan unfiltered and match on the merged advertisement data instead.
++ */
+++ (BOOL)peripheralIsSense:(LGPeripheral*)peripheral {
++    NSDictionary* advertisement = [peripheral advertisingData];
++    CBUUID* serviceId = [CBUUID UUIDWithString:kSENSenseServiceID];
++
++    if ([advertisement[CBAdvertisementDataServiceUUIDsKey] containsObject:serviceId]) {
++        return YES;
++    }
++
++    // the service data is keyed by the 16 bit form of the same service, so a
++    // Sense whose 128 bit UUID landed in the scan response is still identified
++    NSDictionary* serviceData = advertisement[CBAdvertisementDataServiceDataKey];
++    for (CBUUID* uuid in serviceData) {
++        NSString* uuidString = [[uuid UUIDString] uppercaseString];
++        if ([uuidString isEqualToString:kSENSenseServiceDataId]
++            || [uuidString hasPrefix:[@"0000" stringByAppendingString:kSENSenseServiceDataId]]) {
++            return YES;
++        }
++    }
++
++    // Last resort, the local name. Everything above lives in the scan response,
++    // which iOS does not reliably fetch, and the advertising packet itself
++    // carries nothing but the name. SENSense -matchesDeviceId: is what then
++    // decides whether this is the Sense paired to the account.
++    NSString* localName = advertisement[CBAdvertisementDataLocalNameKey] ?: [peripheral name];
++    return [localName hasPrefix:kSENSenseNamePrefix];
++}
++
+ + (BOOL)scanForSenseWithTimeout:(NSTimeInterval)timeout
+                      completion:(void(^)(NSArray* senses))completion {
+-    
++
+     LGCentralManager* btManager = [LGCentralManager sharedInstance];
+     if (![btManager isCentralReady]) return NO;
+-    
++
+     DDLogVerbose(@"scanning for Sense started");
+-    CBUUID* serviceId = [CBUUID UUIDWithString:kSENSenseServiceID];
++    // allowing duplicates is required, not an optimisation: with it off iOS
++    // reports a peripheral on its first advertisement and suppresses every
++    // later callback for it, so the scan response, which is where Sense carries
++    // the service UUID and the device id, never reaches us.
++    NSDictionary* scanOptions = @{CBCentralManagerScanOptionAllowDuplicatesKey: @YES};
+     [btManager scanForPeripheralsByInterval:timeout
+-                                   services:@[serviceId]
+-                                    options:nil
++                                   services:nil
++                                    options:scanOptions
+                                  completion:^(NSArray* peripherals) {
+-                                     NSMutableArray* senses = nil;
+-                                     NSInteger count = [peripherals count];
+-                                     SENSense* sense = nil;
+-                                     if (count > 0) {
+-                                         senses = [NSMutableArray arrayWithCapacity:count];
+-                                         for (LGPeripheral* device in peripherals) {
+-                                             sense = [[SENSense alloc] initWithPeripheral:device];
+-                                             DDLogVerbose(@"discovered sense %@", sense);
+-                                             [senses addObject:sense];
++                                     NSMutableArray* senses = [NSMutableArray array];
++                                     for (LGPeripheral* device in peripherals) {
++                                         if (![self peripheralIsSense:device]) {
++                                             continue;
+                                          }
++                                         SENSense* sense = [[SENSense alloc] initWithPeripheral:device];
++                                         DDLogVerbose(@"discovered sense %@", sense);
++                                         [senses addObject:sense];
+                                      }
+-                                     DDLogVerbose(@"scan completed with %ld Sense(s) found", (long)count);
+-                                     if (completion) completion(senses);
++                                     // the peripheral count distinguishes "saw nothing at all" from
++                                     // "saw devices but no Sense among them", which is the first thing
++                                     // worth knowing when a scan comes back empty
++                                     DDLogVerbose(@"scan completed with %ld Sense(s) found out of %ld peripheral(s)",
++                                                  (long)[senses count], (long)[peripherals count]);
++                                     if (completion) completion([senses count] > 0 ? senses : nil);
+                                  }];
+     return YES;
+ }
+@@ -248,8 +298,16 @@ - (void)rediscoverToConnectThen:(void(^)(NSError* error))completion {
+         if (strongSelf) {
+             BOOL foundAgain = NO;
+             if ([senses count] > 0) {
++                NSString* knownId = [[strongSelf sense] deviceId];
+                 for (SENSense* sense in senses) {
+-                    if ([[[strongSelf sense] deviceId] isEqualToString:[sense deviceId]]) {
++                    // a rescanned Sense usually has no device id of its own: it
++                    // rides in the advertised service data, which arrives in the
++                    // scan response that iOS does not reliably fetch. Comparing
++                    // the ids directly therefore fails to recognise the very
++                    // Sense we are already managing, and rediscovery gives up
++                    // with Invalidated while Sense sits there advertising.
++                    if ([sense matchesDeviceId:knownId]) {
++                        [sense adoptDeviceId:knownId];
+                         [strongSelf setSense:sense];
+                         foundAgain = YES;
+                         break;
+diff --git a/Vendor/SenseKit/Pod/Classes/Service/SENServiceDevice.m b/Vendor/SenseKit/Pod/Classes/Service/SENServiceDevice.m
+index a7f2d73..9d330eb 100644
+--- a/Vendor/SenseKit/Pod/Classes/Service/SENServiceDevice.m
++++ b/Vendor/SenseKit/Pod/Classes/Service/SENServiceDevice.m
+@@ -206,9 +206,13 @@ - (BOOL)senseIsTheOnePairedToAccount:(SENSense*)sense {
+     }
+     
+     SENSenseMetadata* senseMetadata = [[self devices] senseMetadata];
+-    NSString* pairedDeviceId = [[senseMetadata uniqueId] lowercaseString];
+-    NSString* senseDeviceId = [[sense deviceId] lowercaseString];
+-    return [pairedDeviceId isEqualToString:senseDeviceId];
++    NSString* pairedDeviceId = [senseMetadata uniqueId];
++    if (![sense matchesDeviceId:pairedDeviceId]) {
++        return NO;
++    }
++    // a Sense matched by name has no id of its own; it is this one
++    [sense adoptDeviceId:pairedDeviceId];
++    return YES;
+ }
+ 
+ - (void)findAndManageSense:(void(^)(NSError* error))completion {

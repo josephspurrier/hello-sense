@@ -1,0 +1,9 @@
+machine:
+  xcode:
+    version: "8.2"
+dependencies:
+  pre:
+    - sudo make ci_deps
+test:
+  override:
+    - make ci

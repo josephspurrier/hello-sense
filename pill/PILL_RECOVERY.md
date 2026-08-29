@@ -1,5 +1,7 @@
 # Sleep Pill Recovery via SWD
 
+*Part of [Reviving the Hello Sense Sleep System](../README.md).*
+
 Recover a bricked **Hello Sleep Pill** (the company is defunct) by flashing correct
 firmware over SWD using a J-Link debug probe. This covers building from source,
 flashing, and verifying the device.

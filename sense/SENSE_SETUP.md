@@ -1,5 +1,7 @@
 # Self-hosting the Hello Sense
 
+*Part of [Reviving the Hello Sense Sleep System](../README.md).*
+
 Make a **Hello Sense** sleep tracker (the company is defunct, cloud shut down) upload its
 sensor data to a **local server** over its own WiFi + HTTPS, exactly the way it once
 talked to Hello's cloud.

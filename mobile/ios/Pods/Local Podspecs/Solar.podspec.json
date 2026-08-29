@@ -1,0 +1,24 @@
+{
+  "name": "Solar",
+  "version": "2.1.0",
+  "summary": "A Swift micro library for generating Sunrise and Sunset times",
+  "homepage": "https://github.com/ceeK/Solar",
+  "license": {
+    "type": "MIT",
+    "file": "LICENSE"
+  },
+  "authors": {
+    "Chris Howell": "chris.kevin.howell@gmail.com"
+  },
+  "source": {
+    "git": "https://github.com/ceeK/Solar.git",
+    "tag": "2.1.0"
+  },
+  "platforms": {
+    "ios": "15.0"
+  },
+  "requires_arc": true,
+  "swift_versions": "5.0",
+  "source_files": "Solar/*.swift",
+  "swift_version": "5.0"
+}

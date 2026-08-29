@@ -1,5 +1,7 @@
 # Infrastructure for the consolidated Hello Sense backend
 
+*Part of [Reviving the Hello Sense Sleep System](../README.md).*
+
 Three services where there used to be sixteen containers across four languages.
 
 | Service | Language | What it is |

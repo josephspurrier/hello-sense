@@ -1,0 +1,110 @@
+//
+//  HEMZoomAnimationTransitionDelegate.m
+//  Sense
+//
+//  Created by Delisa Mason on 12/10/14.
+//  Copyright (c) 2014 Hello, Inc. All rights reserved.
+//
+
+#import "HEMZoomAnimationTransitionDelegate.h"
+#import "HEMSleepHistoryViewController.h"
+#import "UIView+HEMSnapshot.h"
+#import "HEMScreenUtils.h"
+
+@implementation HEMZoomAnimationTransitionDelegate
+
+- (id<UIViewControllerAnimatedTransitioning>)animationControllerForDismissedController:(UIViewController *)dismissed
+{
+    return self;
+}
+
+- (id<UIViewControllerAnimatedTransitioning>)animationControllerForPresentedController:(UIViewController *)presented
+                                                                  presentingController:(UIViewController *)presenting
+                                                                      sourceController:(UIViewController *)source
+{
+    return self;
+}
+
+#pragma mark - UIViewControllerAnimatedTransitioning
+
+- (NSTimeInterval)transitionDuration:(id<UIViewControllerContextTransitioning>)transitionContext
+{
+    return 0.75f;
+}
+
+- (void)animateTransition:(id<UIViewControllerContextTransitioning>)transitionContext
+{
+    UIView *containerView = [transitionContext containerView];
+    UIViewController *toViewController = [transitionContext viewControllerForKey:UITransitionContextToViewControllerKey];
+    UIViewController *fromViewController = [transitionContext viewControllerForKey:UITransitionContextFromViewControllerKey];
+
+    if ([toViewController isKindOfClass:[HEMSleepHistoryViewController class]]) {
+        CGRect finalFrame = [transitionContext finalFrameForViewController:toViewController];
+        toViewController.view.frame = finalFrame;
+        toViewController.view.layer.zPosition = 0;
+        fromViewController.view.layer.zPosition = 1;
+        [containerView addSubview:toViewController.view];
+        [self zoomOutToController:toViewController fromController:fromViewController transition:transitionContext];
+    } else if ([fromViewController isKindOfClass:[HEMSleepHistoryViewController class]]) {
+        [self zoomInFromController:fromViewController transition:transitionContext];
+    } else {
+        [transitionContext completeTransition:YES];
+    }
+}
+
+- (void)zoomInFromController:(UIViewController*)fromViewController
+                  transition:(id<UIViewControllerContextTransitioning>)transitionContext
+{
+    [self animateView:fromViewController.view
+       verticalOffset:10
+            transform:CATransform3DMakeScale(2.f, 2.f, 1.f)
+      otherAnimations:NULL
+           completion:^{
+               [transitionContext completeTransition:YES];
+           }];
+}
+
+- (void)zoomOutToController:(UIViewController*)toViewController
+             fromController:(UIViewController*)fromViewController
+                 transition:(id<UIViewControllerContextTransitioning>)transitionContext
+{
+    UIImage* snapshot = [fromViewController.view snapshot];
+    UIImageView* imageView = [[UIImageView alloc] initWithImage:snapshot];
+    [toViewController.view.layer insertSublayer:imageView.layer
+                                        atIndex:(uint)toViewController.view.layer.sublayers.count];
+    toViewController.view.layer.transform = CATransform3DMakeScale(1.4f, 1.4f, 1.f);
+    imageView.layer.transform = CATransform3DMakeScale(0.7142f, 0.7142f, 1.f);
+    [transitionContext completeTransition:YES];
+    [self animateView:imageView
+       verticalOffset:0
+            transform:CATransform3DMakeScale(0.4f, 0.4f, 1.f)
+      otherAnimations:^{
+          toViewController.view.layer.transform = CATransform3DIdentity;
+      }
+           completion:^{
+               [imageView.layer removeFromSuperlayer];
+           }];
+}
+
+- (void)animateView:(UIView*)view
+     verticalOffset:(CGFloat)verticalOffset
+          transform:(CATransform3D)transform
+    otherAnimations:(void(^)())animations
+         completion:(void(^)())completion {
+    [UIView animateWithDuration:[self transitionDuration:nil] animations:^{
+        if (animations)
+            animations();
+        view.layer.transform = transform;
+        CGRect frame = view.frame;
+        frame.origin.y += verticalOffset;
+        view.frame = frame;
+        view.alpha = 0;
+    } completion:^(BOOL finished) {
+        if (completion)
+            completion();
+        view.alpha = 1;
+        view.layer.transform = CATransform3DIdentity;
+    }];
+}
+
+@end

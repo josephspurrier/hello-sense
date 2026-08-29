@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>${SENSE_ROOM_CONDITIONS_NAME}</string>
+	<key>CFBundleExecutable</key>
+	<string>${EXECUTABLE_NAME}</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>${PRODUCT_NAME}</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>2.1.1</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>2.1.1.3</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionMainStoryboard</key>
+		<string>RoomConditionsExtension</string>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.widget-extension</string>
+	</dict>
+	<key>SenseApiUrl</key>
+	<string>${SENSE_API_URL}</string>
+	<key>SenseClientId</key>
+	<string>${SENSE_CLIENT_ID}</string>
+	<key>SenseKeychainGroup</key>
+	<string>${SENSE_KEYCHAIN_GROUP}</string>
+	<key>SenseLocalStorageGroup</key>
+	<string>${SENSE_LOCAL_STORAGE_GROUP}</string>
+	<key>SenseSettingsGroup</key>
+	<string>${SENSE_SETTINGS_GROUP}</string>
+	<key>SenseUrlScheme</key>
+	<string>${SENSE_ROOM_CONDITIONS_EXT_SCHEME}</string>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>healthkit</string>
+	</array>
+</dict>
+</plist>
