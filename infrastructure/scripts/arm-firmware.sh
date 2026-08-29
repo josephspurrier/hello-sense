@@ -21,6 +21,12 @@
 #                           write. file_download_task reads them before it
 #                           reaches the serial-flash branch, and an absent
 #                           field leaves a NULL that strlen() walks into.
+#                           sd_card_filename is "mcuimgx.bin", not "mcuimg.bin":
+#                           three independent places in Hello's own code agree on
+#                           it (suripu-service CreateDynamoDBTables, its
+#                           ReceiveResourceIT, and the hello-admin UI defaults),
+#                           so match the reference rather than reasoning about
+#                           which fields "should" matter.
 #   sha1 / file_size        MUST be right. sf_sha1_verify checks the written
 #                           bytes and abandons the update on a mismatch WITHOUT
 #                           touching the boot record, which is the difference
@@ -50,6 +56,18 @@ mkdir -p firmware
 # no-op. Comparing resolved paths keeps re-arming the same image idempotent.
 if [ "$(cd "$(dirname "$IMAGE")" && pwd)/$NAME" != "$(pwd)/firmware/$NAME" ]; then
   cp "$IMAGE" "firmware/$NAME"
+fi
+
+# Relabel for SELinux. The compose mount carries `z`, but that only relabels
+# what exists when the container starts. A file staged afterwards keeps whatever
+# label it arrived with, and `mv` preserves the source's label rather than
+# inheriting the directory's. The result is a file that is plainly there, owned
+# and readable, and completely invisible inside the container: the device gets a
+# 404 and abandons the update, with nothing in any log saying why.
+if command -v chcon >/dev/null 2>&1 && [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+  chcon -t container_file_t "firmware/$NAME" 2>/dev/null \
+    || sudo chcon -t container_file_t "firmware/$NAME"
+  echo "relabelled firmware/$NAME for SELinux"
 fi
 
 PSQL_USER=$(. ./.env 2>/dev/null; echo "${POSTGRES_USER:-hello}")
@@ -87,7 +105,7 @@ VALUES (
     $SIZE,
     true, true, false,
     'mcuimgx.bin', '/sys/',
-    'mcuimg.bin', '/',
+    'mcuimgx.bin', '/',
     true,
     'armed by scripts/arm-firmware.sh');
 

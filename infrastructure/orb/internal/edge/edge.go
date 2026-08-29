@@ -134,11 +134,15 @@ func (h *Handler) byHost(w http.ResponseWriter, r *http.Request) {
 		r.Header.Get(senseIDHeader) != "":
 		h.timeSync(w, r)
 	case r.URL.Path == "/logs":
-		// The device posts its own logs. Accepted and dropped: they are useful
-		// only when actively debugging the firmware, and storing them was a
-		// meaningful share of the old system's write volume.
-		io.Copy(io.Discard, io.LimitReader(r.Body, maxBody))
-		w.WriteHeader(http.StatusNoContent)
+		// The device posts its own logs. Normally accepted and dropped: they
+		// are useful only when actively debugging the firmware, and storing
+		// them was a meaningful share of the old system's write volume.
+		//
+		// Under -debug they are printed instead, because they are the ONLY
+		// account of what the device did with something we asked it to do. An
+		// OTA that is offered, downloaded and then silently not applied leaves
+		// no other trace: the server sees a successful GET and nothing more.
+		h.deviceLogs(w, r)
 	default:
 		h.log.Warn("unrouted device request", "host", host, "path", r.URL.Path)
 		http.Error(w, "not found", http.StatusNotFound)
