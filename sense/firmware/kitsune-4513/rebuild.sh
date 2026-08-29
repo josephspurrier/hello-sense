@@ -49,9 +49,13 @@ echo ">> source  : $KITSUNE_REPO @ $KITSUNE_TAG (KIT_VER=$KIT_VER)"
 # 1. Build the toolchain image if it does not exist yet (~5 min first time).
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo ">> building image (first run only)..."
-  for t in "$HERE/toolchain/ccsv6.tar.gz" "$HERE/toolchain/cgt-5.1.5.tar.gz"; do
-    [ -f "$t" ] || { echo "MISSING $t -- see PROCESS.md 'Toolchain bundle'"; exit 1; }
-  done
+  # Only the compiler is vendored. This used to also demand a ccsv6.tar.gz, left
+  # over from when the image installed the full CCS/Eclipse tree; the Dockerfile
+  # has not used it since the build switched to driving the generated makefiles
+  # with plain make. The stale check aborted every build on a host that did not
+  # already have the image cached.
+  t="$HERE/toolchain/cgt-5.1.5.tar.gz"
+  [ -f "$t" ] || { echo "MISSING $t -- see PROCESS.md 'Toolchain bundle'"; exit 1; }
   docker build --platform "$PLATFORM" -t "$IMAGE" "$HERE"
 fi
 

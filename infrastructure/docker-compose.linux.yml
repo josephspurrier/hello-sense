@@ -40,5 +40,6 @@ services:
     volumes:
       # sense_server.py opens "server.crt" and "server.key" relative to its
       # working directory, so they are mounted onto those exact names.
-      - ./secrets/${SENSE_CERT_FILE:-server.crt}:/app/server.crt:ro
-      - ./secrets/${SENSE_KEY_FILE:-server.key}:/app/server.key:ro
+      # See the note on the orb service's mount for why `z` is here.
+      - ./secrets/${SENSE_CERT_FILE:-server.crt}:/app/server.crt:ro,z
+      - ./secrets/${SENSE_KEY_FILE:-server.key}:/app/server.key:ro,z

@@ -108,7 +108,15 @@ services:
     volumes:
       # The APNs signing key, read-only. Must be readable by uid 10001:
       #     chown 10001 secrets/AuthKey_*.p8 && chmod 600 secrets/*.p8
-      - ./secrets:/secrets:ro
+      #
+      # The `z` is for SELinux hosts (Oracle Linux, Fedora, RHEL), where the
+      # daemon confines containers and an unlabelled bind mount is simply
+      # denied: "Permission denied" on a file that is plainly readable. It
+      # relabels the path to container_file_t. Lowercase z is deliberate, since
+      # sense-server mounts out of this same directory and uppercase Z would
+      # relabel it exclusively for whichever container started last. Ignored on
+      # hosts without SELinux, so it is safe on macOS.
+      - ./secrets:/secrets:ro,z
     healthcheck:
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:9999/ping"]
       interval: 15s
