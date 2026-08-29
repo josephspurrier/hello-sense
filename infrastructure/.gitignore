@@ -1,0 +1,57 @@
+# Secrets. Nothing matched here may ever be committed.
+#
+# The device's TLS material and the APNs signing key are the two things that
+# would let someone else impersonate this deployment, so the patterns are
+# deliberately broad: it is cheaper to force an explicit `git add -f` for a
+# harmless file than to leak a private key once.
+.env
+secrets/
+*.p8
+*.key
+*.pem
+*.der
+*.crt
+*.csr
+*.srl
+aes.key
+
+# Hello's build output. suripu-app-*.jar is 77 MB and is not ours to
+# redistribute; it is supplied at build time through the `jars` build context.
+# See README.md, "The suripu jar".
+*.jar
+
+# Compiled output from the source trees in this repository. All of it is
+# reproducible with `make build`, and orb/migrate in particular is a stale
+# 13 MB binary from before cmd/migrate was a one-shot tool.
+orb-algo/build/
+orb/migrate
+orb/orb
+orb/apidiff
+orb/compare
+orb/pushsend
+orb/timecheck
+
+# 25 MB of DynamoDB scan output holding REAL SLEEP DATA, read by cmd/migrate as
+# a fixed snapshot. It is data, not source, and there is a verified copy in the
+# backups directory. It must never be committed.
+orb/migrations/dump/
+
+# Backups and database dumps. These contain real sleep data.
+backups/
+dump/
+*.dump
+*.sql.gz
+*.tar.gz
+
+# Local-only compose overrides.
+docker-compose.override.yml
+*.local.yml
+
+.DS_Store
+
+# The repository root ignores *_pb2.py as generated code, which is usually
+# right. This one is a BUILD INPUT: sense-server/Dockerfile COPYs it, so
+# without this un-ignore the Linux sense-server image fails to build for
+# anyone who clones. Regenerate it from ntp.proto if you would rather not
+# carry generated code.
+!sense-server/ntp_pb2.py

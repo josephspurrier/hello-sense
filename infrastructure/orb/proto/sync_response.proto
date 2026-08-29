@@ -1,0 +1,133 @@
+//package hello;
+
+option java_package = "com.hello.suripu.api.output";
+option java_outer_classname = "OutputProtos";
+
+import "audio_control.proto";
+import "audio_features_control.proto";
+option go_package = "github.com/josephspurrier/hello-orb/orb/internal/pb/syncresp";
+
+message SyncResponse {
+
+    message FileDownload {
+        optional string host =1;
+        optional string url =2;
+        optional bool copy_to_serial_flash =4;
+        optional bool reset_network_processor =5;
+        optional bool reset_application_processor =6;
+        optional string serial_flash_filename =7;
+        optional string serial_flash_path =8;
+        optional string sd_card_filename =3;
+        optional string sd_card_path =9;
+        optional bytes sha1 = 10;
+        optional int32 file_size = 11;   
+    }
+
+    message Alarm {
+        optional uint32 start_time = 1;  // obselete,  use ring_offset_from_now
+        optional uint32 end_time = 2;  // obselete, use ring_offset_from_now + ring_duration
+        optional int32 ringtone_id = 3 [default = 1];
+        optional int32 ring_offset_from_now_in_second = 4;  // This is a more fault tolerance design
+        optional int32 ring_duration_in_second = 5;
+        optional string ringtone_path = 6;
+    }
+
+    message PairingAction {
+        enum ActionType {
+            PAIR = 0;
+            UNPAIR = 1;
+        }
+
+        optional string ssid = 1;
+        optional ActionType type = 2;
+    }
+
+
+    message WhiteNoise {
+        optional int32 start_time = 1;
+        optional int32 end_time = 2;
+        optional int32 sound_id = 3;
+    }
+
+    message FlashAction {
+        optional int32 red =1;
+		optional int32 green =2;
+		optional int32 blue =3;
+		
+		optional int32 delay_milliseconds = 4;
+		optional bool fade_in = 5;
+		optional bool fade_out = 6;
+		optional bool rotate = 7;
+		optional int32 alpha = 8;
+    }
+
+    message LEDAction {
+        enum LEDActionType {
+            FADEIO = 0;     // quickly fade in color, wait, then quickly fade out
+            GLOW = 1;       // Slowly fade in color for half duration, then slowly fade out
+            THROB = 2;      // repeadedly fade in to color and out again
+            PULSAR = 3;     // Spining pulsar effect with quick fade in color, wait then quick fade out
+            DOUBLE = 4;     // Double spining pulsar effect with quick fade in color, wait then quick fade out
+            SIREN = 5;      // Double spining pulsar with both colors with quick fade in, wait, then quick fade out
+            TRIPPY = 6;     // Randomized LED colors 
+            PARTY = 7;      // Party mode, fade to/from random colors
+            URL = 8;        // URL to a multi color LED blink pattern definition
+        }
+
+        optional LEDActionType type = 1;        // LED Animation type
+        optional string url = 2;                // URL string used when URL type selected
+        optional uint32 color = 3;              // ARGB main color to fade in/out
+        optional uint32 alt_color = 4;          // ARGB alternative color used in SIREN type
+        optional int32 duration_seconds = 6;    // Total animation duration in seconds
+    }
+
+    enum RoomConditions {
+        IDEAL = 1;
+        WARNING = 2;
+        ALERT = 3;
+        IDEAL_EXCLUDING_LIGHT = 4;
+    }
+
+    message PillSettings {
+        optional string pill_id = 1;
+        optional uint32 pill_color = 2;
+    }
+
+    // TODO: failure cases (timeout, exponential backoff, etc.)
+
+    // WARNING: Please do not remove fields that were commented out,
+    // It is a reminder we should not reuse those indexes.
+
+    //optional int32 upload_cycle = 1;
+    //optional int32 sync_cycle = 2;
+    //optional int32 acc_scan_cyle = 3;
+    //optional int32 acc_sampling_interval = 4;
+    //optional int32 device_sampling_interval = 5;
+    optional Alarm alarm = 6;
+    //optional PairingAction pairing_action = 7;
+    optional WhiteNoise white_noise = 8;
+    //optional FlashAction flash_action = 9;
+    optional bool reset_device = 10;    // Does a factory reset!
+    optional RoomConditions room_conditions = 12;
+	repeated FileDownload files = 13;
+	optional bool reset_to_factory_fw = 14;
+    optional AudioControl audio_control = 15;
+	//optional uint32 unix_time = 16;
+    //optional LEDAction led_action = 17;
+	optional bytes mac = 18;
+	optional int32 batch_size = 19;
+    repeated PillSettings pill_settings = 20;
+    optional bool reset_mcu = 21;
+	optional uint32 upload_log_level = 22;
+	optional uint32 pill_batch_size = 23;
+    optional string ring_time_ack = 24;
+    optional RoomConditions room_conditions_lights_off = 25;
+    optional AudioFeaturesControl audio_features_control = 26; //controls if features get uploaded, rates, etc.
+    optional uint32 lights_off_threshold = 27;
+    // TODO: settings for snoring detection
+    // TODO: settings for firmware update
+}
+
+message BatchedPillSettings {
+    repeated SyncResponse.PillSettings pill_settings = 1;
+}

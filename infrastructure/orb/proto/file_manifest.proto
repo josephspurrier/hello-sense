@@ -1,0 +1,64 @@
+option go_package = "github.com/josephspurrier/hello-orb/orb/internal/pb/filesync";
+option java_package = "com.hello.suripu.api.input";
+option java_outer_classname = "FileSync";
+
+message FileManifest {
+
+    message FileDownload {
+        optional string host =1;
+        optional string url =2;
+        optional string sd_card_filename =3;
+        optional string sd_card_path =4;
+        optional bytes sha1 = 5;   
+    }
+    
+	message FileOperationError {
+
+		enum ErrorType {
+			NO_ERROR = 0;
+			READ_ERROR = 1;	
+			WRITE_ERROR = 2;
+		}
+
+		optional string filename = 1;
+		optional ErrorType err_type = 2;
+		optional int32 err_code = 3;
+
+	}
+
+	message File {
+		optional FileDownload download_info = 1;
+		optional bool delete_file = 2;				// set by server if has_download_info = true
+		optional bool update_file =3;			// Set by server if file needs to be download, updated, or deleted.
+	}
+
+
+	enum FileStatusType {
+		DOWNLOAD_COMPLETED = 0;
+		DOWNLOAD_PENDING = 1;
+	}	
+
+	message LinkHealth {
+		optional uint32 send_errors = 1; // a count of send errors that occured since the previous successful upload 
+		optional uint32 time_to_response = 2; // Time, in minutes, from when message is sent for transmit to when a response is received from the server
+	}
+
+	message MemoryInfo {
+		optional uint32 total_memory = 1;
+		optional uint32 free_memory = 2;		// in kilobytes
+		optional bool sd_card_failure = 3;		// set when there is a complete SD card failure, false otherwise
+
+	}
+
+	repeated File file_info = 1;
+	optional FileStatusType file_status = 2; // set if there are items in the download queue which are pending
+	optional uint32 device_uptime_in_seconds = 3;		// in seconds
+	optional uint32 query_delay = 4; 		// delay between requests in minutes, set by server; on device reset: 15 minutes
+	optional int32 firmware_version = 5;
+	optional int32 unix_time = 6;			// time at which message was created
+	optional LinkHealth link_health = 7;
+	optional MemoryInfo sd_card_size = 8;
+	repeated FileOperationError error_info = 9;	// list of all the file operation errors, per file, since last upload. Max items - 10
+	optional string sense_id = 10;
+
+}

@@ -1,0 +1,44 @@
+# Linux overlay: adds the device-facing TLS terminator as a container.
+#
+#     docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
+#
+# The Makefile selects this automatically on Linux.
+#
+# WHY THIS IS LINUX ONLY
+#
+# network_mode: host gives the container the host's network stack directly. No
+# port publishing, no NAT, no userland forwarder. The bytes the Sense sends are
+# the bytes tlslite-ng sees.
+#
+# That mode does not meaningfully exist on Docker Desktop for macOS, where
+# everything runs inside a Linux VM and traffic reaches a container through a
+# userland proxy. This device offers a single cipher, sends no supported_groups,
+# and has already been broken twice at the transport layer. Adding a NAT hop in
+# front of it for no functional gain is a bad trade, so on macOS sense_server.py
+# stays on the host. See README.md.
+
+services:
+  sense-server:
+    build:
+      context: ./sense-server
+    image: ${COMPOSE_PROJECT_NAME:-hello-orb}/sense-server:latest
+    restart: unless-stopped
+    depends_on:
+      orb:
+        condition: service_healthy
+    # The host's :80 and :443, and the host's loopback. That last part is why
+    # the upstreams below can say 127.0.0.1: orb publishes 8081 to the host, and
+    # with host networking this container shares that loopback.
+    network_mode: host
+    environment:
+      SENSE_UPSTREAM_SENSE: http://127.0.0.1:${ORB_EDGE_PUBLISH:-8081}
+      SENSE_UPSTREAM_TIME: http://127.0.0.1:${ORB_EDGE_PUBLISH:-8081}
+      SENSE_UPSTREAM_MESSEJI: http://127.0.0.1:${ORB_EDGE_PUBLISH:-8081}
+      # SENSE_SHADOW is deliberately unset. It existed to mirror traffic to
+      # suripu-service during the cutover; there is no second implementation to
+      # mirror to any more.
+    volumes:
+      # sense_server.py opens "server.crt" and "server.key" relative to its
+      # working directory, so they are mounted onto those exact names.
+      - ./secrets/${SENSE_CERT_FILE:-server.crt}:/app/server.crt:ro
+      - ./secrets/${SENSE_KEY_FILE:-server.key}:/app/server.key:ro

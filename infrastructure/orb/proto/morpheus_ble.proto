@@ -1,0 +1,169 @@
+option go_package = "github.com/josephspurrier/hello-orb/orb/internal/pb/ble";
+//package hello;
+
+option java_package = "com.hello.suripu.api.ble";
+option java_outer_classname = "SenseCommandProtos";
+
+enum ErrorType {
+	TIME_OUT = 0;              // Internal time out, no implemented yet.
+	NETWORK_ERROR = 1;         // Network not available or unreachable network.
+	DEVICE_ALREADY_PAIRED = 2; // User tries to paired a paired device to another account.
+	INTERNAL_DATA_ERROR = 3;   // Data packets corruption during BLE or SPI transfer
+	DEVICE_DATABASE_FULL = 4;  // No more space for device pairing.
+	DEVICE_NO_MEMORY = 5;      // Device run out of heap
+	INTERNAL_OPERATION_FAILED = 6;
+	NO_ENDPOINT_IN_RANGE = 7;
+	WLAN_CONNECTION_ERROR = 8;  //factory reset failed to remove stored wifi endpoint
+	FAIL_TO_OBTAIN_IP = 9;
+	WLAN_ENDPOINT_DELETE_FAILED = 10;
+	INVALID_ACCOUNT_ID = 11;    //pair device command doesn't contain a valid account ID
+	FORCE_DATA_PUSH_FAILED = 12;//error from pushing data after MORPHEUS_COMMAND_PUSH_DATA_AFTER_SET_TIMEZONE
+	PROTOBUF_ENCODE_FAILED = 13;
+	PROTOBUF_DECODE_FAILED = 14;
+	SERVER_CONNECTION_TIMEOUT = 15;
+}
+
+message wifi_endpoint {
+	/*
+	_u8 ssid[MAXIMAL_SSID_LENGTH];
+	_u8 ssid_len;
+	_u8 sec_type;
+	_u8 bssid[SL_BSSID_LENGTH];
+	_i8 rssi;
+	*/
+	enum sec_type {
+		/*
+        from wlan.h
+        #define SL_WLAN_SEC_TYPE_OPEN                                                                                (0)
+        #define SL_WLAN_SEC_TYPE_WEP                                                                                 (1)
+        #define SL_WLAN_SEC_TYPE_WPA                                                                                 (2) 
+        #define SL_WLAN_SEC_TYPE_WPA_WPA2                                                                            (2)
+        #define SL_WLAN_SEC_TYPE_WPS_PBC                                                                             (3)
+        #define SL_WLAN_SEC_TYPE_WPS_PIN                                                                             (4)
+        #define SL_WLAN_SEC_TYPE_WPA_ENT                                                                             (5)
+        #define SL_WLAN_SEC_TYPE_P2P_PBC                                                                             (6)
+        #define SL_WLAN_SEC_TYPE_P2P_PIN_KEYPAD                                                                      (7)
+        #define SL_WLAN_SEC_TYPE_P2P_PIN_DISPLAY                                                                     (8)
+        #define SL_WLAN_SEC_TYPE_P2P_PIN_AUTO                                                                        (9) 
+        #define SL_WLAN_SEC_TYPE_WEP_SHARED                                                                          (10)
+        Warning - keep these matching
+		*/
+
+		SL_SCAN_SEC_TYPE_OPEN = 0;
+		SL_SCAN_SEC_TYPE_WEP = 1;
+		SL_SCAN_SEC_TYPE_WPA = 2;
+		SL_WLAN_SEC_TYPE_WPS_PBC = 3;
+		SL_WLAN_SEC_TYPE_WPS_PIN = 4;
+		SL_WLAN_SEC_TYPE_WPA_ENT = 5;
+		SL_WLAN_SEC_TYPE_P2P_PBC = 6;
+		SL_WLAN_SEC_TYPE_P2P_PIN_KEYPAD = 7;
+		SL_WLAN_SEC_TYPE_P2P_PIN_DISPLAY = 8;
+		SL_WLAN_SEC_TYPE_P2P_PIN_AUTO = 9;
+		SL_WLAN_SEC_TYPE_WEP_SHARED = 10;
+
+	}
+	required string ssid = 1;
+	optional bytes bssid = 2;
+	required int32 rssi = 4;
+	required sec_type security_type = 5;
+}
+
+enum wifi_connection_state {
+	NO_WLAN_CONNECTED = 0;
+	WLAN_CONNECTING = 1;
+	WLAN_CONNECTED = 2;
+	IP_RETRIEVED = 3;
+	DNS_RESOLVED = 4;
+	SOCKET_CONNECTED = 5;
+	REQUEST_SENT = 6;
+	CONNECTED = 7;
+
+	SSL_FAIL = 8;
+	HELLO_KEY_FAIL = 9;
+	DNS_FAILED = 10;
+	CONNECT_FAILED = 11;
+}
+
+message pill_data {
+	required string device_id = 1;
+	optional int32 battery_level = 2;
+	optional int32 uptime = 3;
+	optional bytes motion_data_entrypted = 4;
+	optional int32 protocol_version = 5;
+	required uint64 timestamp = 6; // In seconds
+	optional int32 rssi = 7;
+	optional int32 firmware_build = 8;
+}
+
+message MorpheusCommand {
+	enum CommandType {
+	    MORPHEUS_COMMAND_SET_TIME = 0;
+	    MORPHEUS_COMMAND_GET_TIME = 1;
+	    MORPHEUS_COMMAND_SET_WIFI_ENDPOINT = 2;
+	    MORPHEUS_COMMAND_GET_WIFI_ENDPOINT = 3;
+	    MORPHEUS_COMMAND_SET_ALARMS = 4;
+	    MORPHEUS_COMMAND_GET_ALARMS = 5;
+	    MORPHEUS_COMMAND_SWITCH_TO_PAIRING_MODE = 6;
+	    MORPHEUS_COMMAND_SWITCH_TO_NORMAL_MODE = 7;
+	    MORPHEUS_COMMAND_START_WIFISCAN = 8;
+	    MORPHEUS_COMMAND_STOP_WIFISCAN = 9;
+	    MORPHEUS_COMMAND_GET_DEVICE_ID = 10;
+	    MORPHEUS_COMMAND_ERASE_PAIRED_PHONE = 11;
+	    MORPHEUS_COMMAND_PAIR_PILL = 12;
+	    MORPHEUS_COMMAND_ERROR = 13;  // if you receive this, that means something goes wrong.
+	    MORPHEUS_COMMAND_PAIR_SENSE = 14;
+	    MORPHEUS_COMMAND_UNPAIR_PILL = 15;
+	    MORPHEUS_COMMAND_MORPHEUS_DFU_BEGIN = 16;
+	    MORPHEUS_COMMAND_PILL_DATA = 17;
+	    MORPHEUS_COMMAND_PILL_HEARTBEAT = 18;
+	    MORPHEUS_COMMAND_PILL_DFU_BEGIN = 19;
+	    MORPHEUS_COMMAND_FACTORY_RESET = 20;
+	    MORPHEUS_COMMAND_PILL_SHAKES = 21;
+	    MORPHEUS_COMMAND_SYNC_DEVICE_ID = 22;
+	    MORPHEUS_COMMAND_PHONE_BLE_CONNECTED = 23;
+	    MORPHEUS_COMMAND_PHONE_BLE_BONDED = 24;
+	    MORPHEUS_COMMAND_LED_BUSY = 25;
+	    MORPHEUS_COMMAND_LED_TRIPPY = 26;
+	    MORPHEUS_COMMAND_LED_OPERATION_FAILED = 27;
+	    MORPHEUS_COMMAND_SCAN_WIFI = 28;
+	    MORPHEUS_COMMAND_GET_NEXT_WIFI_AP = 29;
+	    MORPHEUS_COMMAND_LED_OPERATION_SUCCESS = 30;
+	    MORPHEUS_COMMAND_PUSH_DATA_AFTER_SET_TIMEZONE = 31;
+	    MORPHEUS_COMMAND_SET_COUNTRY_CODE = 32;
+	    MORPHEUS_COMMAND_SET_SERVER_IP = 33;
+	    MORPHEUS_COMMAND_CONNECTION_STATE = 34;
+	    MORPHEUS_COMMAND_PILL_PROX_DATA = 35;
+	}
+	required int32 version = 1;
+	required CommandType type = 2;
+	optional string deviceId = 3;
+	optional string accountId = 4;  // Used by MORPHEUS_COMMAND_PAIR_PILL
+	optional ErrorType error = 5;  // MORPHEUS_COMMAND_ERROR
+	optional string wifiName = 6;
+	optional string wifiSSID = 7;
+	optional string wifiPassword = 8;
+	// optional int32 batteryLevel = 9;  // Removed field, dont reuse
+	// optional int32 uptime = 10;       // Removed field, dont reuse
+	// optional int32 motionData = 11;   // This field is removed, to make thing explicit, please DONOT remove the line
+	// optional bytes motionDataEntrypted = 12;   // This field is removed, to make thing explicit, please DONOT remove the line
+	optional int32 protocol_version = 13;
+	repeated wifi_endpoint wifi_scan_result = 14;
+	optional wifi_endpoint.sec_type security_type = 15;
+	optional pill_data pill_data = 16;
+	optional wifi_connection_state wifi_connection_state = 17;
+	optional int32 ble_bond_count = 18;
+	optional string country_code = 19;
+	optional bytes aes_key = 20;
+    optional string top_version = 21;
+	optional uint32 server_ip = 22;
+	optional uint32 socket_error_code = 23;
+	optional string http_response_code = 24;
+	optional int32 app_version = 25;
+	optional uint32 firmware_build = 26;
+}
+
+message batched_pill_data {
+	repeated pill_data pills = 1;
+	required string device_id = 2;
+	repeated pill_data prox = 3;
+}

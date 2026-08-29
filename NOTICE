@@ -1,0 +1,98 @@
+# NOTICE
+
+This repository revives the Hello Sense sleep tracker, a product discontinued in
+2017. It is a mixture of original work and material belonging to other people.
+The MIT licence in `LICENSE` applies to the original work **only**. This file
+says which is which, so that anyone using, forking or redistributing it can tell
+them apart.
+
+## Read this first: two things you are not free to redistribute
+
+**1. Texas Instruments Code Generation Tools.**
+`sense/firmware/kitsune-4513/toolchain/cgt-5.1.5.tar.gz` is 55 MB of TI's
+proprietary C compiler for the CC3200, redistributed here under no grant that
+the author of this repository is able to give. It is present because
+reproducing Hello's exact firmware binary requires that exact compiler version,
+which TI no longer publishes. **TI is an active company with a live licence
+agreement covering these tools**, which makes this the sharpest edge in the
+repository: unlike Hello, there is someone to object. If you fork this, consider
+removing it and obtaining the toolchain yourself.
+
+**2. Everything belonging to Hello Inc.** Their repositories carry no licence at
+all, so all rights are reserved by default. The trained sleep models, the
+firmware images, the protobuf definitions and the patches are all theirs. The
+full list is below.
+
+Neither is covered by `LICENSE`, and neither is the author's to relicense.
+
+## Covered by the MIT licence
+
+Original work by the copyright holder:
+
+- `infrastructure/orb/`: the Go application, the device edge, the app API, the
+  background worker and Apple push. Written from scratch. It reimplements
+  behaviour observed in Hello's services, but the code is original.
+- `infrastructure/orb-algo/src/`: the Java shim that exposes Hello's timeline
+  algorithms over HTTP.
+- `infrastructure/sense-server/sense_server.py`, the TLS front-end for the
+  device, plus `services/dns_server.py` and `services/gen_certs.py`
+- All Dockerfiles, Compose files, Makefiles, shell and Python tooling, and the
+  documentation throughout.
+
+## NOT covered
+
+### Hello Inc.
+
+**Hello's source repositories carry no licence of any kind.** No `LICENSE`
+file, no `<licenses>` declaration in the Maven poms, no source headers, and no
+statement in any README, across every repository checked. Under default
+copyright that means all rights reserved. Their being public on GitHub is not a
+grant of rights. Hello ceased trading in 2017 and its assets were acquired, so
+an owner exists.
+
+The following are Hello's, reproduced here because the system does not function
+without them:
+
+| Path | What it is |
+|---|---|
+| `infrastructure/orb-algo/models/featureextractionlayer.bin` | byte-identical to Hello's own test fixture in `suripu-core` |
+| `infrastructure/orb-algo/models/normal4.base64`, `normal4ensemble.base64` | Hello's trained sleep-model weights |
+| `infrastructure/orb-algo/patches/` | patches against Hello's source; each contains their code as context |
+| `infrastructure/orb/proto/*.proto`, `services/proto/*.proto` | Hello's protobuf wire-format definitions |
+| `infrastructure/sense-server/ntp_pb2.py` | generated from Hello's `ntp.proto` |
+| `sense/firmware/kitsune-4513/` | build recipe for, and a rebuild of, Hello's Sense firmware, including `out/kitsune.bin` and `out/kitsune.out` |
+| `sense/firmware/kitsune-4513/submodules/*.bundle` | git bundles of Hello's firmware submodules |
+| `pill/firmware/pill-1.0.3/out/` | compiled Hello Sleep Pill firmware and bootloader images |
+
+Upstream, for reference:
+
+- https://github.com/hello/suripu
+- https://github.com/hello/suripu-app
+- https://github.com/hello/suripu-service
+- https://github.com/hello/hello-time
+- https://github.com/hello/messeji
+- https://github.com/hello/kitsune (Sense firmware)
+- https://github.com/hello/kodobannin (Pill firmware)
+
+`suripu-app-*.jar`, the 77 MB shaded jar `orb-algo` runs on, is deliberately
+**not** in this repository for the same reason. It is supplied at build time.
+
+### Texas Instruments
+
+`sense/firmware/kitsune-4513/toolchain/cgt-5.1.5.tar.gz` is TI's Code
+Generation Tools for the CC3200, 55 MB, and is **proprietary software under
+TI's own licence agreement**. It is present because reproducing Hello's exact
+firmware binary requires that exact compiler version, which TI no longer
+distributes. It is not redistributable under the MIT licence and TI is an
+active rights holder.
+
+### Everything else
+
+Third-party dependencies pulled in at build time (Go modules, Maven artifacts,
+Python packages, base images) keep their own licences.
+
+## If you are reusing this
+
+The safe subset is `infrastructure/orb/`, `infrastructure/orb-algo/src/` and the
+tooling: that is genuinely MIT and genuinely the author's to give. Anything in
+the table above, take up with its owner.

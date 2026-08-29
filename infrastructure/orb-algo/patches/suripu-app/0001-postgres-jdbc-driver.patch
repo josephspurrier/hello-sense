@@ -1,0 +1,23 @@
+diff --git a/pom.xml b/pom.xml
+index 660d9da..2925e2b 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -179,10 +179,17 @@
+             <artifactId>aws-java-sdk-sns</artifactId>
+             <version>${aws.sdk.version}</version>
+         </dependency>
++        <!--
++          Bumped from 9.2-1004-jdbc4 (2013). oauth_tokens stores access_token and
++          refresh_token as Postgres UUID columns, and the 9.2 driver cannot infer
++          a SQL type for a java.util.UUID bind, so every token request died with
++          "Can't infer the SQL type to use for an instance of java.util.UUID".
++          42.7.x still targets Java 8 and speaks to old and new servers alike.
++        -->
+         <dependency>
+             <groupId>org.postgresql</groupId>
+             <artifactId>postgresql</artifactId>
+-            <version>9.2-1004-jdbc4</version>
++            <version>42.7.4</version>
+         </dependency>
+         <dependency>
+             <groupId>io.dropwizard</groupId>

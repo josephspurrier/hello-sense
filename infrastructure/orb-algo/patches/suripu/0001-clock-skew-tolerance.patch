@@ -1,0 +1,16 @@
+diff --git a/suripu-core/src/main/java/com/hello/suripu/core/util/SenseProcessorUtils.java b/suripu-core/src/main/java/com/hello/suripu/core/util/SenseProcessorUtils.java
+index 1b7d6c6c5..70b29e07c 100644
+--- a/suripu-core/src/main/java/com/hello/suripu/core/util/SenseProcessorUtils.java
++++ b/suripu-core/src/main/java/com/hello/suripu/core/util/SenseProcessorUtils.java
+@@ -21,7 +21,10 @@ import java.util.Map;
+ public class SenseProcessorUtils {
+     private final static Logger LOGGER = LoggerFactory.getLogger(SenseProcessorUtils.class);
+ 
+-    public final static Integer CLOCK_SKEW_TOLERATED_IN_HOURS = 2;
++    // Sense buffers up to 3h of samples while it cannot reach the server and
++    // flushes them on reconnect. At the stock 2h this discarded the older half
++    // of every flush, so allow a full buffer plus headroom.
++    public final static Integer CLOCK_SKEW_TOLERATED_IN_HOURS = 4;
+ 
+     public static DateTime getSampleTime(final DateTime createdAtRounded, final DataInputProtos.periodic_data periodicData, final Boolean attemptToRecoverSenseReportedTimeStamp) {
+         // To validate that the firmware is sending a correct unix timestamp

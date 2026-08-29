@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd service for orb.
+
+  Why this exists: orb was run by hand under `nohup` from /tmp for the whole of
+  development, which is fine while nothing depends on it. On 2026-08-16 orb
+  drove the Sense's alarm for the first time, and an unsupervised process that
+  serves alarms is a process whose death is a morning you do not wake up. This
+  is the prerequisite for orb being primary, not a nicety.
+
+  A LaunchDaemon rather than a LaunchAgent, deliberately: agents run only while
+  a user is logged in, and an alarm has to survive a logout and a reboot.
+
+  Install:
+    sudo cp orb/deploy/is.hello.orb.plist /Library/LaunchDaemons/
+    sudo chown root:wheel /Library/LaunchDaemons/is.hello.orb.plist
+    sudo launchctl load -w /Library/LaunchDaemons/is.hello.orb.plist
+
+  Stop, and stop it coming back:
+    sudo launchctl unload -w /Library/LaunchDaemons/is.hello.orb.plist
+
+  Paths below are absolute because launchd has no shell and no PATH worth
+  relying on. Change ProgramArguments[0] if the binary lives elsewhere.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>is.hello.orb</string>
+
+    <!--
+      9999, not 8082. orb fronts the app API: it answers what it implements and
+      proxies the rest to suripu-app on 9997, which is the address the iOS app
+      was built with. Starting on 8082 instead leaves nothing on 9999 and the
+      app simply stops working, with orb looking perfectly healthy.
+    -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/orb</string>
+        <string>-api-addr</string>
+        <string>:9999</string>
+        <string>-api-fallback</string>
+        <string>http://127.0.0.1:9997</string>
+        <string>-algo</string>
+        <string>http://localhost:8090</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ORB_DSN</key>
+        <string>postgres://hello:hello@localhost:5432/orb</string>
+
+        <!--
+          Apple push. The key lives under /usr/local/etc/orb rather than in a
+          home directory: this runs as root at boot, before any user has logged
+          in, so a path under /Users may not be readable when it is needed.
+
+          Omitting these is not an error, it just silently disables push, so the
+          startup line to look for is "push enabled". The sandbox host is
+          correct while the app is a development build; a TestFlight or App
+          Store build needs -apns-production as well.
+        -->
+        <key>ORB_APNS_KEY</key>
+        <string>/usr/local/etc/orb/AuthKey_4NUQLB9Q27.p8</string>
+        <key>ORB_APNS_KEY_ID</key>
+        <string>4NUQLB9Q27</string>
+        <key>ORB_APNS_TEAM</key>
+        <string>FCYLFD2LML</string>
+        <key>ORB_APNS_TOPIC</key>
+        <string>com.josephspurrier.sensetest</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart whenever it exits, for any reason. This is the whole point. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!--
+      orb exits immediately if Postgres or orb-algo are not up yet, which is the
+      normal case at boot while Docker is still starting. Without a throttle,
+      launchd would spin on that. Thirty seconds is long enough for the stack to
+      come up and short enough that a real crash is back in well under a minute.
+    -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>/usr/local/var/log/orb.log</string>
+    <key>StandardErrorPath</key>
+    <string>/usr/local/var/log/orb.log</string>
+
+    <key>WorkingDirectory</key>
+    <string>/usr/local/var</string>
+
+    <!--
+      The edge listens on 8081 and the app API on 8082, both unprivileged, so
+      this does not need root for ports. It runs as root only because a
+      LaunchDaemon does; drop it to a dedicated user if that ever matters.
+    -->
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

@@ -1,0 +1,44 @@
+diff --git a/src/main/java/com/hello/suripu/app/SuripuApp.java b/src/main/java/com/hello/suripu/app/SuripuApp.java
+index d591b42..b13dbe3 100644
+--- a/src/main/java/com/hello/suripu/app/SuripuApp.java
++++ b/src/main/java/com/hello/suripu/app/SuripuApp.java
+@@ -17,6 +17,7 @@ import com.amazonaws.services.kinesisfirehose.AmazonKinesisFirehoseAsyncClient;
+ import com.amazonaws.services.kms.AWSKMSClient;
+ import com.amazonaws.services.s3.AmazonS3;
+ import com.amazonaws.services.s3.AmazonS3Client;
++import com.amazonaws.services.s3.S3ClientOptions;
+ import com.amazonaws.services.sns.AmazonSNSClient;
+ import com.amazonaws.services.sqs.AmazonSQS;
+ import com.amazonaws.services.sqs.AmazonSQSClient;
+@@ -331,9 +332,31 @@ public class SuripuApp extends Application<SuripuAppConfiguration> {
+         final AmazonDynamoDBClientFactory dynamoDBClientFactory = AmazonDynamoDBClientFactory.create(awsCredentialsProvider, new ClientConfiguration(), configuration.dynamoDBConfiguration());
+         final AmazonSNSClient snsClient = new AmazonSNSClient(awsCredentialsProvider, clientConfiguration);
+         final AmazonKinesisAsyncClient kinesisClient = new AmazonKinesisAsyncClient(awsCredentialsProvider, clientConfiguration);
++        // kinesis.endpoint was only ever read for the stream NAMES; the client
++        // itself defaulted to real AWS, which rejects local credentials with
++        // UnrecognizedClientException. That silently killed both loggers built
++        // from it: activity_stream (an audit record per authenticated request,
++        // via the OAuth filter below) and logs (timelineLogger). The writes are
++        // async so nothing failed visibly, it just errored on a callback thread
++        // after every request. Same defect as the S3 client below.
++        if (configuration.getKinesisConfiguration().getEndpoint() != null
++                && !configuration.getKinesisConfiguration().getEndpoint().isEmpty()) {
++            kinesisClient.setEndpoint(configuration.getKinesisConfiguration().getEndpoint());
++        }
+ 
+         final AmazonS3 amazonS3 = new AmazonS3Client(awsCredentialsProvider, clientConfiguration);
+         amazonS3.setRegion(Region.getRegion(Regions.US_EAST_1));
++        // This client was hardcoded to real AWS S3 while every other AWS client
++        // honours a configured endpoint. It is used at startup to load the
++        // timeline models, so against a local stack it fails the boot outright.
++        // Path-style access is required because a local endpoint cannot serve
++        // virtual-host style bucket names.
++        if (configuration.s3Endpoint() != null && !configuration.s3Endpoint().isEmpty()) {
++            amazonS3.setEndpoint(configuration.s3Endpoint());
++            final S3ClientOptions s3ClientOptions = new S3ClientOptions();
++            s3ClientOptions.setPathStyleAccess(true);
++            amazonS3.setS3ClientOptions(s3ClientOptions);
++        }
+ 
+         final ImmutableMap<DynamoDBTableName, String> tableNames = configuration.dynamoDBConfiguration().tables();
+ 

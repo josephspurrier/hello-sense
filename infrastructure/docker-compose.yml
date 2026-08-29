@@ -1,0 +1,120 @@
+# The consolidated Hello Sense backend.
+#
+# Three services. orb is the whole application in one Go binary; orb-algo is a
+# thin HTTP shim over Hello's original sleep algorithms, kept in Java because
+# reimplementing them is not worth doing twice; Postgres is the only datastore.
+#
+# This replaced sixteen containers across four languages.
+#
+#   make up          start everything
+#   make migrate     apply orb's schema migrations
+#   make verify      prove the thing actually works
+#
+# The device-facing TLS terminator is NOT here on macOS. See README.md.
+
+name: ${COMPOSE_PROJECT_NAME:-hello-orb}
+
+services:
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hello}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hello}
+      POSTGRES_DB: ${POSTGRES_DB:-orb}
+    # Bound to localhost by default. The database has no business being
+    # reachable from the network, and on a public host it is the single most
+    # valuable thing running.
+    ports:
+      - "${POSTGRES_PUBLISH:-127.0.0.1:5432}:5432"
+    volumes:
+      # Named, so `docker compose down` cannot take the data with it. With the
+      # default project name this resolves to hello-orb_pgdata, which is the
+      # volume an existing deployment is already using.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-hello} -d ${POSTGRES_DB:-orb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  orb-algo:
+    build:
+      # The source lives here, so the context is simply the directory next to
+      # this file and the Dockerfile sits at its root.
+      context: ./orb-algo
+      args:
+        SURIPU_JAR_NAME: ${SURIPU_JAR_NAME:-suripu-app-0.6.0-SNAPSHOT.jar}
+      # The 77 MB suripu jar is not in this repository and is not copied into
+      # the build context. A named context lets the Dockerfile COPY it from
+      # wherever it actually lives. See README.md, "The suripu jar".
+      additional_contexts:
+        jars: ${SURIPU_JAR_DIR:-../../infrastructure/suripu-app/target}
+    image: ${COMPOSE_PROJECT_NAME:-hello-orb}/orb-algo:latest
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: ${JAVA_OPTS:-}
+    # Not published by default: only orb calls it, over the Compose network.
+    # Uncomment to poke at it by hand.
+    # ports:
+    #   - "127.0.0.1:8090:8090"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  orb:
+    build:
+      context: ./orb
+    image: ${COMPOSE_PROJECT_NAME:-hello-orb}/orb:latest
+    restart: unless-stopped
+    # orb exits immediately if Postgres or orb-algo are not up, by design: a
+    # backend that pretends to be healthy without a database is worse than one
+    # that is visibly down. depends_on makes that a non-event rather than a
+    # restart loop.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orb-algo:
+        condition: service_healthy
+    environment:
+      # Affects exactly two things: the timestamps in orb's own log lines, and
+      # the ISO week used to deduplicate the weekly pill-battery notification
+      # (internal/worker/notify.go). Every sleep date is derived from the
+      # device's own UTC offset, not from this, so changing it cannot move a
+      # night. Set it to your local zone to reproduce what a host process did.
+      TZ: ${TZ:-UTC}
+      ORB_DSN: postgres://${POSTGRES_USER:-hello}:${POSTGRES_PASSWORD:-hello}@postgres:5432/${POSTGRES_DB:-orb}?sslmode=disable
+      # Empty APNS_KEY_FILE means push is simply off and orb says so at startup.
+      ORB_APNS_KEY: ${APNS_KEY_FILE:+/secrets/${APNS_KEY_FILE}}
+      ORB_APNS_KEY_ID: ${APNS_KEY_ID:-}
+      ORB_APNS_TEAM: ${APNS_TEAM:-}
+      ORB_APNS_TOPIC: ${APNS_TOPIC:-}
+    # -api-fallback is deliberately absent. It used to forward unimplemented
+    # app API paths to suripu-app; orb now answers everything and suripu-app is
+    # gone, so a fallback would only mask a missing route.
+    command: -addr :8081 -api-addr :9999 -algo http://orb-algo:8090 ${ORB_EXTRA_FLAGS:-}
+    ports:
+      # The device edge. sense_server.py forwards here.
+      - "${ORB_EDGE_PUBLISH:-8081}:8081"
+      # The app API. The iPhone talks to this directly.
+      - "${ORB_API_PUBLISH:-9999}:9999"
+    volumes:
+      # The APNs signing key, read-only. Must be readable by uid 10001:
+      #     chown 10001 secrets/AuthKey_*.p8 && chmod 600 secrets/*.p8
+      - ./secrets:/secrets:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://localhost:9999/ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+volumes:
+  pgdata:

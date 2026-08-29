@@ -1,0 +1,12 @@
+option go_package = "github.com/josephspurrier/hello-orb/orb/internal/pb/syncresp";
+//package hello;
+
+option java_package = "com.hello.suripu.api.audio";
+option java_outer_classname = "AudioFeaturesControlProtos";
+
+
+message AudioFeaturesControl {
+    optional bool enable_keyword_features = 1;
+
+}
+

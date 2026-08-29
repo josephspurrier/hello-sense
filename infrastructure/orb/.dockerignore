@@ -1,0 +1,13 @@
+# BuildKit reads <dockerfile>.dockerignore in preference to the context's own
+# .dockerignore, which is what lets this file live beside the Dockerfile
+# instead of inside the application source tree.
+#
+# Keeps ~40 MB of migration snapshots and stale binaries out of the build.
+migrations/dump/
+migrate
+timecheck
+apidiff
+compare
+pushsend
+*.test
+.git/

@@ -1,0 +1,17 @@
+-- Per-device calibration for the dust sensor.
+--
+-- The reference keeps this in a `calibration` table keyed by Sense id, holding
+-- a raw-count delta added before the counts-to-density conversion. orb has no
+-- such table and no calibration data was ever migrated, which is how the air
+-- quality dial came to be missing entirely: see below.
+--
+-- Nullable, and null means uncalibrated rather than broken. A device with no
+-- offset still shows its dial, reading whatever the uncalibrated conversion
+-- gives. That is a DELIBERATE divergence from the reference, where a missing
+-- calibration makes CurrentRoomState.particulates() null and
+-- SensorViewFactory drops the sensor from the response altogether. The dial
+-- simply is not there, with nothing on screen to say why, which is the bug
+-- that hid air quality on this account for the whole revival.
+--
+-- Showing an uncalibrated number is more useful than silently showing nothing.
+ALTER TABLE senses ADD COLUMN dust_offset INTEGER;

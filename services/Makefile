@@ -12,6 +12,10 @@
 PORT        ?= /dev/tty.usbserial-XXXXXXXX
 REDIRECT_IP ?=
 PY          := ./venv/bin/python
+# The TLS front-end lives with the rest of the deployment, not here. There used
+# to be a copy in this directory; it drifted out of date and reintroduced a
+# two-hour clock outage, so there is deliberately only one now.
+SENSE_SERVER := ../infrastructure/sense-server/sense_server.py
 PIP         := ./venv/bin/pip
 CC3200      := ./venv/bin/cc3200tool
 CC3200_ARGS := -p $(PORT) --reset none --sop2 '~rts'
@@ -35,15 +39,18 @@ gen-certs:
 dns:
 	sudo $(PY) dns_server.py $(REDIRECT_IP)
 
-## run the TLS front-end: HTTP :80 + HTTPS :443 (sudo). Proxies to the backend
-## stack in ../../infrastructure/docker, which must already be up.
+## run the TLS front-end: HTTP :80 + HTTPS :443 (sudo). Proxies to orb, which
+## must already be up: cd ../infrastructure && make up
 run:
-	sudo $(PY) sense_server.py
+	sudo SENSE_UPSTREAM_SENSE=http://127.0.0.1:8081 \
+	     SENSE_UPSTREAM_TIME=http://127.0.0.1:8081 \
+	     SENSE_UPSTREAM_MESSEJI=http://127.0.0.1:8081 \
+	     $(PY) $(SENSE_SERVER)
 
 ## same, but answer time sync in Python instead of proxying to hello-time
 ## (for running with no backend). Reads the AES key from ./aes.key
 run-standalone:
-	sudo SENSE_TIME_MODE=local $(PY) sense_server.py
+	sudo SENSE_TIME_MODE=local $(PY) $(SENSE_SERVER)
 
 ## --- CC3200 flash tools: device must be in BOOTLOADER mode (ID->RTS, power-cycled) ---
 

@@ -1,0 +1,7 @@
+version: v2
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: .
+    # module= strips the module prefix from go_package, so files land at
+    # internal/pb/<pkg>/ rather than internal/pb/github.com/...
+    opt: module=github.com/josephspurrier/hello-orb/orb

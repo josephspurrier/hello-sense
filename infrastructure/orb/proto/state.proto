@@ -1,0 +1,16 @@
+option go_package = "github.com/josephspurrier/hello-orb/orb/internal/pb/state";
+option java_package = "com.hello.suripu.api.input";
+
+message AudioState {
+    required bool playing_audio = 1;
+    optional uint32 duration_seconds = 2; // Play for `duration` seconds. If not present, play audio indefinitely.
+    optional string file_path = 3;        // Required if playing_audio is true.
+    optional uint32 volume_percent = 4;   // As a percent [0, 100]
+}
+
+message SenseState {
+    required string sense_id = 1;
+    optional AudioState audio_state = 2;
+    optional uint32 volume = 3;
+    optional bool voice_control_enabled = 4;
+}

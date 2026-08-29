@@ -25,6 +25,9 @@ Config (no secrets in this file):
   SENSE_TIME_MODE         "proxy" (default) or "local", see _handle_time_local
   SENSE_AES_KEY           32 hex chars, only needed for SENSE_TIME_MODE=local.
                           Falls back to ./aes.key, then the firmware default.
+  SENSE_CERT_PATH         TLS certificate, default ./server.crt
+  SENSE_KEY_PATH          its private key,  default ./server.key
+  SENSE_LOG_PATH          request log,      default ./server.log
 """
 
 import hashlib
@@ -69,14 +72,22 @@ TLSRecordLayer.recv_into = _recv_into_fixed
 
 import ntp_pb2
 
-CERT_FILE = "server.crt"
-KEY_FILE = "server.key"
-TLS_LOG = "server.log"
+# Paths, not just names, so this can run from anywhere. The container mounts
+# the certificate onto ./server.crt so the defaults are what it uses; a host
+# process points these at ../secrets/ instead.
+CERT_FILE = os.environ.get("SENSE_CERT_PATH", "server.crt")
+KEY_FILE = os.environ.get("SENSE_KEY_PATH", "server.key")
+TLS_LOG = os.environ.get("SENSE_LOG_PATH", "server.log")
 
 UPSTREAM_TIME = os.environ.get("SENSE_UPSTREAM_TIME", "http://127.0.0.1:1111")
 UPSTREAM_SENSE = os.environ.get("SENSE_UPSTREAM_SENSE", "http://127.0.0.1:5555")
 UPSTREAM_MESSEJI = os.environ.get("SENSE_UPSTREAM_MESSEJI", "http://127.0.0.1:10000")
 TIME_MODE = os.environ.get("SENSE_TIME_MODE", "proxy").lower()
+
+# Optional mirror of every device request to the orb Go edge, for validating it
+# against live traffic before any cutover. Observational only: see _shadow.
+SHADOW_URL = os.environ.get("SENSE_SHADOW", "").strip()
+SHADOW_TIMEOUT = float(os.environ.get("SENSE_SHADOW_TIMEOUT", "5"))
 
 # Seconds between the NTP epoch (1900-01-01) and the Unix epoch (1970-01-01).
 # The Sense expects NTP-style timestamps. Sending it Unix seconds is what made
@@ -269,7 +280,55 @@ class HelloHandler(BaseHTTPRequestHandler):
         self.wfile.write(head + payload)
         self.wfile.flush()
 
+    def _shadow(self, body):
+        """Send a copy of this request to the orb Go edge, fire and forget.
+
+        Strictly observational. The reply is discarded and any failure is
+        swallowed after logging, because the device's real answer comes from the
+        Java stack and nothing about this copy may be allowed to affect it. It
+        runs on a daemon thread so a slow or dead shadow cannot add latency to
+        the request the device is waiting on.
+
+        Enable with SENSE_SHADOW=http://127.0.0.1:8081. Unset by default, so
+        this is inert unless deliberately switched on.
+        """
+        if not SHADOW_URL:
+            return
+
+        # Skip the messeji long-poll. It deliberately holds a request open for
+        # ~10s, which is longer than SHADOW_TIMEOUT, so every copy times out and
+        # fills the log with ignored failures. Shadowing it proves nothing
+        # either: the useful comparison is what gets parsed and stored, and a
+        # poll that returns no message stores nothing.
+        if self.path.startswith("/receive"):
+            return
+
+        headers = {k: v for k, v in self.headers.items()
+                   if k.lower() not in HOP_BY_HOP}
+        headers["Content-Length"] = str(len(body))
+        # Preserve the device's Host: the shadow routes on it exactly as the
+        # real path does.
+        headers["Host"] = self.headers.get("Host", "")
+        path = self.path
+        command = self.command
+
+        def send():
+            try:
+                parts = urlsplit(SHADOW_URL)
+                conn = http.client.HTTPConnection(
+                    parts.hostname, parts.port or 80, timeout=SHADOW_TIMEOUT)
+                conn.request(command, path, body=body, headers=headers)
+                resp = conn.getresponse()
+                resp.read()
+                _log(f"  [shadow] {path} = HTTP {resp.status}")
+                conn.close()
+            except Exception as e:
+                _log(f"  [shadow] FAILED (ignored): {type(e).__name__}: {e}")
+
+        threading.Thread(target=send, daemon=True).start()
+
     def _proxy(self, body):
+        self._shadow(body)
         base, path, label = self._route()
         parts = urlsplit(base)
 
@@ -278,7 +337,20 @@ class HelloHandler(BaseHTTPRequestHandler):
         headers = {k: v for k, v in self.headers.items()
                    if k.lower() not in HOP_BY_HOP}
         headers["Content-Length"] = str(len(body))
-        headers["Host"] = parts.netloc
+
+        # Preserve the DEVICE's Host, not this hop's upstream address.
+        #
+        # This used to be parts.netloc, which contradicted the comment above and
+        # broke the clock the moment orb took over time.hello.is: orb routes
+        # that hostname by Host header, saw "127.0.0.1:8081" instead, and 404'd
+        # every request. hello-time had never looked at Host, so the rewrite was
+        # invisible for as long as a Java service was answering. The device
+        # retried every 35 seconds for nearly two hours before anyone noticed.
+        #
+        # orb now also routes a clock request on the device id, so this is no
+        # longer the only thing standing between the Sense and its clock, but a
+        # proxy should pass the origin host through regardless.
+        headers["Host"] = self.headers.get("Host") or parts.netloc
 
         try:
             conn = http.client.HTTPConnection(parts.hostname, parts.port or 80, timeout=30)

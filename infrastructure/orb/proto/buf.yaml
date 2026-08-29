@@ -1,0 +1,8 @@
+version: v2
+lint:
+  use: [BASIC]
+  # These protos are Hello's, frozen by the device firmware. Their naming
+  # cannot change, so lint rules about it are noise.
+  except: [PACKAGE_DIRECTORY_MATCH, FIELD_LOWER_SNAKE_CASE, ENUM_VALUE_PREFIX, ENUM_ZERO_VALUE_SUFFIX, MESSAGE_PASCAL_CASE, PACKAGE_DEFINED]
+breaking:
+  use: [FILE]

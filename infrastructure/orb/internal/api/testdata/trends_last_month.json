@@ -1,0 +1,205 @@
+{
+  "available_time_scales": [
+    "LAST_WEEK",
+    "LAST_MONTH"
+  ],
+  "graphs": [
+    {
+      "annotations": [],
+      "condition_ranges": [
+        {
+          "condition": "IDEAL",
+          "max_value": 100,
+          "min_value": 80
+        },
+        {
+          "condition": "WARNING",
+          "max_value": 79,
+          "min_value": 60
+        },
+        {
+          "condition": "ALERT",
+          "max_value": 59,
+          "min_value": 0
+        }
+      ],
+      "data_type": "SCORES",
+      "graph_type": "GRID",
+      "max_value": 85,
+      "min_value": 65,
+      "sections": [
+        {
+          "highlighted_title": 5,
+          "highlighted_values": [],
+          "titles": [
+            "SUN",
+            "MON",
+            "TUE",
+            "WED",
+            "THU",
+            "FRI",
+            "SAT"
+          ],
+          "values": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "highlighted_title": null,
+          "highlighted_values": [],
+          "titles": [],
+          "values": [
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+          ]
+        },
+        {
+          "highlighted_title": null,
+          "highlighted_values": [],
+          "titles": [],
+          "values": [
+            null,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1
+          ]
+        },
+        {
+          "highlighted_title": null,
+          "highlighted_values": [],
+          "titles": [],
+          "values": [
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1
+          ]
+        },
+        {
+          "highlighted_title": null,
+          "highlighted_values": [
+            5
+          ],
+          "titles": [],
+          "values": [
+            -1,
+            65,
+            76,
+            85,
+            76,
+            68,
+            null
+          ]
+        }
+      ],
+      "time_scale": "LAST_MONTH",
+      "title": "Sleep Score"
+    },
+    {
+      "annotations": [],
+      "condition_ranges": [],
+      "data_type": "HOURS",
+      "graph_type": "BAR",
+      "max_value": 9.466666,
+      "min_value": 5.6666665,
+      "sections": [
+        {
+          "highlighted_title": null,
+          "highlighted_values": [],
+          "titles": [
+            "JUL"
+          ],
+          "values": [
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1
+          ]
+        },
+        {
+          "highlighted_title": null,
+          "highlighted_values": [
+            9,
+            11
+          ],
+          "titles": [
+            "AUG"
+          ],
+          "values": [
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            5.6666665,
+            6.8166666,
+            9.466666,
+            7.1666665,
+            6.116667
+          ]
+        }
+      ],
+      "time_scale": "LAST_MONTH",
+      "title": "Sleep Duration"
+    },
+    {
+      "annotations": [],
+      "condition_ranges": [],
+      "data_type": "PERCENTS",
+      "graph_type": "BUBBLES",
+      "max_value": 1,
+      "min_value": 0,
+      "sections": [
+        {
+          "highlighted_title": null,
+          "highlighted_values": [],
+          "titles": [
+            "LIGHT",
+            "MEDIUM",
+            "DEEP"
+          ],
+          "values": [
+            0,
+            0.39377683,
+            0.60622317
+          ]
+        }
+      ],
+      "time_scale": "LAST_MONTH",
+      "title": "Sleep Depth"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+-- The per-minute segment list orb-algo computes for a night.
+--
+-- Stored rather than recomputed per request. suripu recomputes the whole
+-- timeline on every app call, which is why one screen refresh runs the
+-- algorithms three times; orb scores on a timer and serves what it scored, so
+-- the app sees exactly the night that was scored and the endpoint is a read.
+--
+-- JSONB rather than a table of rows: it is written whole, read whole, and never
+-- queried by field. A row per minute would be 420 rows a night to reassemble in
+-- order every time.
+ALTER TABLE timeline_events ADD COLUMN segments jsonb;

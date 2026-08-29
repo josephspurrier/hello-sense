@@ -1,0 +1,4 @@
+# build/ holds classes compiled on the host. The image compiles its own from
+# src/, so shipping the host's would just risk a stale mismatch.
+build/
+.git/

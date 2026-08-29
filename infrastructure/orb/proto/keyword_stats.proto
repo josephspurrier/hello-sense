@@ -1,0 +1,22 @@
+option go_package = "github.com/josephspurrier/hello-orb/orb/internal/pb/device";
+//package hello;
+
+option java_package = "com.hello.suripu.api.input";
+option java_outer_classname = "KeywordStatsProtos";
+
+message IndividualKeywordHistogram {
+    repeated sint32 histogram_counts = 1; //bins, say 0 to 1.0 in chunks the size of 0.1, representing the counts of how often in each bin
+    optional sint32 key_word_index = 2; 
+}
+
+message KeywordActivation {
+    optional sint64 time_counter = 1; //not be be confused with wall-time
+    optional sint32 key_word_index = 2;
+}
+
+
+message KeywordStats {
+    optional string net_model = 1;
+    repeated IndividualKeywordHistogram histograms = 2;
+    repeated KeywordActivation keyword_activations = 3;
+}

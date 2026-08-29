@@ -1,0 +1,80 @@
+//package hello;
+
+import "keyword_stats.proto";
+option go_package = "github.com/josephspurrier/hello-orb/orb/internal/pb/device";
+option java_package = "com.hello.suripu.api.input";
+option java_outer_classname = "DataInputProtos";
+
+message periodic_data {
+
+    optional int32 unix_time=1;
+    optional int32 light=2;
+    optional int32 temperature=3;
+    optional int32 humidity=4;
+    optional int32 dust=5;
+    //optional string name=6;
+    //optional bytes mac=7;
+    optional int32 light_variability=8;
+    optional int32 light_tonality=9;
+    //optional int32 firmware_version=10;
+    // Please do not reuse index 11, it's for the removed pill_data.
+    //optional string device_id = 12;
+    optional int32 dust_variability=13;
+    optional int32 dust_max=14;
+    optional int32 dust_min=15;
+    optional int32 wave_count = 16;
+    optional int32 hold_count = 17;
+    optional int32 audio_num_disturbances = 18;
+    optional int32 audio_peak_disturbance_energy_db = 19;
+    optional int32 audio_peak_background_energy_db = 20;
+    optional int32 audio_peak_energy_db = 21;
+    optional uint32 pressure = 22; // in Q24.8 format (24 integer bits and 8 fractional bits). // Output value of “24674867” represents 24674867/256 = 96386.2 Pa = 963.862 hPa
+    optional int32 tvoc = 23; //from 0 - 1000 ppb
+    optional int32 co2 = 24; //from 400 - 5000 ppm
+
+    message light_data {
+        required int32 r = 1;
+        required int32 g = 2;
+        required int32 b = 3;
+        optional int32 infrared = 4;
+        optional int32 clear = 5;
+        optional int32 lux_count = 6;
+        optional int32 uv_count = 7;
+    }
+
+    message TvocVersion {
+        optional uint32 tvoc_app_fw_version = 1; // sensor application firmware version. This field needs to be compared in order to update sensor firmware
+        optional uint32 tvoc_boot_fw_version = 2; // sensor boot firmware version. 
+        optional uint32 tvoc_hw_version = 3; // sensor hardware version. 
+    }
+    
+    optional light_data light_sensor   = 25;
+    optional int32 light_duration_ms   = 26;
+
+    optional KeywordStats keyword_stats = 27;
+
+    optional TvocVersion tvoc_version = 28;
+}
+
+message batched_periodic_data {
+	message wifi_access_point {
+		enum AntennaType {
+			IFA = 1;
+			PCB = 2;
+		}
+		optional string ssid = 1;
+		optional int32 rssi = 2;
+		optional AntennaType antenna = 3;
+	}
+	repeated periodic_data data = 1;
+	required string device_id = 2;
+	required int32 firmware_version=3;
+	optional int32 uptime_in_second = 4;
+    //optional bool need_key = 5;
+    //optional string serial = 6;
+	optional string connected_ssid = 7;
+	// repeated wifi_access_point scan = 8;
+    optional string ring_time_ack = 9;
+    repeated wifi_access_point scan = 10;
+    optional int32 messages_in_queue = 11;
+}

@@ -1,0 +1,93 @@
+// Package renamed to avoid colliding with periodic.proto, which declares the
+// same message names. Wire format is unaffected.
+package worker;
+//package hello;
+import "keyword_stats.proto";
+option go_package = "github.com/josephspurrier/hello-orb/orb/internal/pb/worker";
+
+option java_package = "com.hello.suripu.api.input";
+option java_outer_classname = "DataInputProtos";
+
+message periodic_data {
+    optional int32 unix_time=1;
+    optional int32 light=2;
+    optional int32 temperature=3;
+    optional int32 humidity=4;
+    optional int32 dust=5;
+    optional string name=6;
+	optional bytes mac=7;
+	optional int32 light_variability=8;
+	optional int32 light_tonality=9;
+	optional int32 firmware_version=10;
+    // Please do not reuse index 11, it's for the removed pill_data.
+    optional string device_id = 12;
+    optional int32 dust_variability=13;
+    optional int32 dust_max=14;
+    optional int32 dust_min=15;
+    optional int32 wave_count = 16;
+    optional int32 hold_count = 17;
+    optional int32 audio_num_disturbances = 18;
+    optional int32 audio_peak_disturbance_energy_db = 19;
+    optional int32 audio_peak_background_energy_db = 20;
+    optional int32 audio_peak_energy_db = 21;
+    optional uint32 pressure = 22; // in Q24.8 format (24 integer bits and 8 fractional bits). // Output value of “24674867” represents 24674867/256 = 96386.2 Pa = 963.862 hPa
+    optional int32 tvoc = 23; //from 0 - 1000 ppb
+    optional int32 co2 = 24; //from 400 - 5000 ppm
+
+    message light_data{
+        required int32 r = 1;
+        required int32 g = 2;
+        required int32 b = 3;
+        optional int32 infrared = 4;
+        optional int32 clear = 5;
+        optional int32 lux_count = 6;
+        optional int32 uv_count = 7;
+    }
+
+    optional light_data light_sensor   = 25;
+
+    optional int32 light_duration_ms   = 26;
+
+    optional KeywordStats keyword_stats = 27;
+}
+
+message batched_periodic_data {
+    message wifi_access_point {
+        enum AntennaType {
+            IFA = 1;
+            PCB = 2;
+        }
+        optional string ssid = 1;
+        optional int32 rssi = 2;
+        optional AntennaType antenna = 3;
+    }
+	repeated periodic_data data = 1;
+	required string device_id = 2;
+	required int32 firmware_version=3;
+    optional int32 uptime_in_second = 4;
+    // optional bool need_key = 5;  // this is no longer used on the FW
+	// optional string serial = 6; // this is no longer used on the FW
+    
+    // Commenting the following out until we figure why it fails to parse
+    optional string connected_ssid = 7;
+    // repeated wifi_access_point scan = 8;
+    // optional string ring_time_ack = 9;
+    repeated wifi_access_point scan = 10;
+    optional int32 messages_in_queue = 11;
+}
+
+
+message AccountMetadata {
+        optional int64 account_id = 1;
+        optional string timezone = 2;
+}
+
+message BatchPeriodicDataWorker {
+    optional batched_periodic_data data = 1;
+    optional string ip_address = 2;
+    optional int64 received_at = 3;
+    optional int32 uptime_in_second = 4;
+    repeated AccountMetadata timezones = 5;
+    optional string firmware_middle_version = 6;
+    optional string firmware_top_version = 7;
+}
