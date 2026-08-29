@@ -55,3 +55,8 @@ docker-compose.override.yml
 # anyone who clones. Regenerate it from ntp.proto if you would rather not
 # carry generated code.
 !sense-server/ntp_pb2.py
+
+# ACME http-01 challenge tokens. Transient, written by certbot, read by
+# sense-server. Nothing here is worth committing and the directory is recreated
+# by `make init`.
+acme/

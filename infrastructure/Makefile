@@ -61,9 +61,17 @@ init: ## Create .env and secrets/ from the templates (never overwrites)
 	  cp .env.example .env; \
 	  echo "created .env  <- edit POSTGRES_PASSWORD and the APNS block"; \
 	fi
-	@mkdir -p secrets backups
-	@chmod 700 secrets
+	@mkdir -p secrets backups acme
+	# 711, not 700. orb runs as uid 10001 and has to traverse this directory to
+	# reach the APNs key; 700 owned by your user means it cannot, and orb
+	# crash-loops on "permission denied" for a file that looks perfectly
+	# readable. 711 lets any uid open a file it already knows the name of
+	# without being able to list the directory. The files themselves stay 600.
+	# Docker Desktop on macOS rewrites ownership on bind mounts, so this only
+	# ever bites on Linux, which is to say on the machine you deploy to.
+	@chmod 711 secrets
 	@echo "secrets/ ready (gitignored). Put the APNs .p8 and the device certs here."
+	@echo "  then:  sudo chown 10001 secrets/AuthKey_*.p8 && sudo chmod 600 secrets/AuthKey_*.p8"
 	@echo ""
 	@echo "next:  make build && make up && make migrate"
 

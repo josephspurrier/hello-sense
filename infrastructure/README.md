@@ -144,15 +144,70 @@ git. Worth wiring into CI.
 its filename (not its path), and make it readable by the container's user:
 
 ```bash
-chown 10001 secrets/AuthKey_XXXXXXXXXX.p8
-chmod 600 secrets/AuthKey_XXXXXXXXXX.p8
+sudo chown 10001 secrets/AuthKey_XXXXXXXXXX.p8
+sudo chmod 600 secrets/AuthKey_XXXXXXXXXX.p8
 ```
 
 Leave `APNS_KEY_FILE` empty and push is simply off. orb logs `push disabled` at
 startup and everything else works.
 
+**On Linux, the directory matters as much as the file.** orb runs as uid 10001
+and needs to traverse `secrets/` to reach the key. If the directory is `700`
+and owned by you, it cannot, and orb crash-loops with
+
+```
+level=ERROR msg=apns err="push: read key: open /secrets/AuthKey_XXXXXXXXXX.p8: permission denied"
+```
+
+on a file whose own permissions look fine. `make init` now creates it `711`, so
+any uid can open a file it knows the name of while nobody can list the
+directory. If you created `secrets/` before this change, run `chmod 711 secrets`.
+
+This never happens on macOS, because Docker Desktop rewrites ownership on bind
+mounts. It happens immediately on the Linux host you deploy to.
+
 **The device certificates.** `server.crt` and `server.key` also go in
 `secrets/`, and are only used by `sense-server` on Linux.
+
+## A certificate for the app API
+
+The app API and the device endpoint cannot share a TLS terminator. The Sense
+offers one cipher and sends no `supported_groups`, so Caddy, nginx and every
+cloud load balancer refuse its handshake; only `tlslite-ng` completes it. The
+device's port is not negotiable either, since the firmware hardcodes 443
+(`kitsune/wifi_cmd.c:1193` sets the port bytes to `0x01BB`). So `sense-server`
+holds 80 and 443, and the app API goes somewhere else, typically Caddy on 8443.
+
+That leaves Caddy unable to get its own certificate: Let's Encrypt validates
+http-01 on **port 80 only**, and tls-alpn-01 on **443 only**. Both belong to the
+device.
+
+The way out is to let `sense-server` answer the challenge and nothing else:
+
+1. `make init` creates `acme/`. Point certbot at it as a webroot.
+2. Set `SENSE_ACME_WEBROOT=/acme` in `.env` and restart `sense-server`.
+3. Issue the certificate:
+
+```bash
+sudo certbot certonly --webroot -w ./acme -d sense.example.com
+```
+
+4. Point Caddy at the resulting `fullchain.pem` and `privkey.pem`, and have it
+   reverse-proxy to orb's API port.
+
+`sense_server.py` serves exactly one path prefix,
+`/.well-known/acme-challenge/`, read-only, and only when `SENSE_ACME_WEBROOT` is
+set. Token names must be entirely base64url characters, so nothing from the
+network reaches the filesystem unchecked. With the variable unset the code path
+does not exist, which is the default and how it behaves on macOS.
+
+The Sense never requests that prefix, so the device path is unaffected.
+
+**Why not give Caddy port 80 and put `sense-server` behind it?** Renewals would
+then handle themselves, which is tempting. But the device's port 80 carries time
+sync, and a device with a wrong clock has every sample it uploads discarded as
+out of range. Putting a second proxy in front of that path to save a cron job is
+not a good trade, and this file has already caused one two-hour outage.
 
 ## Adopting an existing deployment
 

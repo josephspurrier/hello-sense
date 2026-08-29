@@ -89,6 +89,26 @@ TIME_MODE = os.environ.get("SENSE_TIME_MODE", "proxy").lower()
 SHADOW_URL = os.environ.get("SENSE_SHADOW", "").strip()
 SHADOW_TIMEOUT = float(os.environ.get("SENSE_SHADOW_TIMEOUT", "5"))
 
+# Directory to answer ACME http-01 challenges from. Empty means the feature is
+# off, which is the default and the only behaviour this file had before.
+#
+# Why this lives here at all: Let's Encrypt validates http-01 on port 80 and
+# nowhere else, and port 80 on this host belongs to the device. Certbot writes
+# a token file under <webroot>/.well-known/acme-challenge/ and Let's Encrypt
+# fetches it over plain HTTP. Serving that one prefix here is what lets a
+# normal TLS terminator (Caddy, on another port, for the app API) hold a real
+# certificate without taking port 80 away from the Sense.
+#
+# The Sense never requests this path. Nothing about the device path changes.
+ACME_WEBROOT = os.environ.get("SENSE_ACME_WEBROOT", "").strip()
+
+# Challenge tokens are base64url. Anything outside this set is not a token, and
+# refusing early means no filename from the network ever reaches the filesystem.
+ACME_TOKEN_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+)
+ACME_PREFIX = "/.well-known/acme-challenge/"
+
 # Seconds between the NTP epoch (1900-01-01) and the Unix epoch (1970-01-01).
 # The Sense expects NTP-style timestamps. Sending it Unix seconds is what made
 # it report 1956 instead of 2026, which in turn made suripu-workers discard
@@ -374,8 +394,52 @@ class HelloHandler(BaseHTTPRequestHandler):
         self._finish_response(payload)
         conn.close()
 
+    def _serve_acme(self):
+        """Answer an ACME http-01 challenge from ACME_WEBROOT.
+
+        Returns True if this request was an ACME challenge and has been
+        answered, False if the caller should carry on with normal routing.
+
+        Deliberately narrow. It only ever reads, only under one path prefix,
+        only when a webroot is configured, and only for names made entirely of
+        base64url characters. A token that fails any of those is a 404 without
+        the filesystem being touched, so there is no path this can be talked
+        into reading something it should not.
+        """
+        if not ACME_WEBROOT or not self.path.startswith(ACME_PREFIX):
+            return False
+
+        token = self.path[len(ACME_PREFIX):].split("?", 1)[0]
+        if not token or not set(token) <= ACME_TOKEN_CHARS:
+            _log(f"[ACME] rejected token {token!r}")
+            self._send_bytes(404, b"not found")
+            return True
+
+        full = os.path.join(ACME_WEBROOT, ".well-known", "acme-challenge", token)
+        try:
+            with open(full, "rb") as fh:
+                payload = fh.read()
+        except OSError:
+            _log(f"[ACME] miss {token}")
+            self._send_bytes(404, b"not found")
+            return True
+
+        _log(f"[ACME] served {token} ({len(payload)} bytes)")
+        self._send_bytes(200, payload, "application/octet-stream")
+        return True
+
+    def _send_bytes(self, code, payload, ctype="text/plain"):
+        """One small response, with the Content-Length keep-alive requires."""
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(payload)))
+        self._finish_response(payload)
+
     def do_GET(self):
         _log(f"[REQ] GET {self.path} (Host: {self.headers.get('Host', '?')})")
+        if self._serve_acme():
+            sys.stdout.flush()
+            return
         self._proxy(b"")
 
     def do_POST(self):

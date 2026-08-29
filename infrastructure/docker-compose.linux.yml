@@ -37,9 +37,20 @@ services:
       # SENSE_SHADOW is deliberately unset. It existed to mirror traffic to
       # suripu-service during the cutover; there is no second implementation to
       # mirror to any more.
+      #
+      # ACME http-01 webroot. Empty (the default) means the feature is off and
+      # this container behaves exactly as it always has. Set it to /acme in
+      # .env when a TLS terminator on another port needs a Let's Encrypt
+      # certificate: Let's Encrypt only validates http-01 on port 80, and port
+      # 80 here belongs to the device. See README, "A certificate for the app
+      # API".
+      SENSE_ACME_WEBROOT: ${SENSE_ACME_WEBROOT:-}
     volumes:
       # sense_server.py opens "server.crt" and "server.key" relative to its
       # working directory, so they are mounted onto those exact names.
       # See the note on the orb service's mount for why `z` is here.
       - ./secrets/${SENSE_CERT_FILE:-server.crt}:/app/server.crt:ro,z
       - ./secrets/${SENSE_KEY_FILE:-server.key}:/app/server.key:ro,z
+      # Where certbot drops http-01 challenge tokens. Mounted read-only and
+      # always present, but inert unless SENSE_ACME_WEBROOT points at it.
+      - ./acme:/acme:ro,z
