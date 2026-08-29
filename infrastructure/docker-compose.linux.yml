@@ -31,9 +31,11 @@ services:
     # with host networking this container shares that loopback.
     network_mode: host
     environment:
-      SENSE_UPSTREAM_SENSE: http://127.0.0.1:${ORB_EDGE_PUBLISH:-8081}
-      SENSE_UPSTREAM_TIME: http://127.0.0.1:${ORB_EDGE_PUBLISH:-8081}
-      SENSE_UPSTREAM_MESSEJI: http://127.0.0.1:${ORB_EDGE_PUBLISH:-8081}
+      # ORB_EDGE_PORT, never a bind address: this is a URL, so only a bare port
+      # is valid here. See the note on orb's ports in docker-compose.yml.
+      SENSE_UPSTREAM_SENSE: http://127.0.0.1:${ORB_EDGE_PORT:-8081}
+      SENSE_UPSTREAM_TIME: http://127.0.0.1:${ORB_EDGE_PORT:-8081}
+      SENSE_UPSTREAM_MESSEJI: http://127.0.0.1:${ORB_EDGE_PORT:-8081}
       # SENSE_SHADOW is deliberately unset. It existed to mirror traffic to
       # suripu-service during the cutover; there is no second implementation to
       # mirror to any more.

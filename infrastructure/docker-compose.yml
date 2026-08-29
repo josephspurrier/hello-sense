@@ -101,10 +101,25 @@ services:
     # gone, so a fallback would only mask a missing route.
     command: -addr :8081 -api-addr :9999 -algo http://orb-algo:8090 ${ORB_EXTRA_FLAGS:-}
     ports:
-      # The device edge. sense_server.py forwards here.
-      - "${ORB_EDGE_PUBLISH:-8081}:8081"
-      # The app API. The iPhone talks to this directly.
-      - "${ORB_API_PUBLISH:-9999}:9999"
+      # Split into a bind address and a port on purpose.
+      #
+      # These used to be single variables holding a whole Docker port spec, so
+      # ORB_EDGE_PUBLISH could be either "8081" or "127.0.0.1:8081". That was a
+      # trap: docker-compose.linux.yml also interpolates the edge value into
+      # sense-server's upstream URL, where only a bare port is valid, so
+      # restricting the binding silently produced
+      # "http://127.0.0.1:127.0.0.1:8081". sense-server would start, log its
+      # upstreams, bind 80 and 443 and look healthy, while every device request
+      # failed at proxy time.
+      #
+      # BIND_IP empty (the default) publishes on all interfaces, exactly as
+      # before. Set it to 127.0.0.1 on a public host, where the only local
+      # client is sense-server over host networking.
+      - "${ORB_EDGE_BIND_IP:+${ORB_EDGE_BIND_IP}:}${ORB_EDGE_PORT:-8081}:8081"
+      # The app API. On the LAN the iPhone talks to this directly; behind Caddy
+      # it should be bound to 127.0.0.1, since Caddy reaches orb by service name
+      # over the Compose network instead.
+      - "${ORB_API_BIND_IP:+${ORB_API_BIND_IP}:}${ORB_API_PORT:-9999}:9999"
     volumes:
       # The APNs signing key, read-only. Must be readable by uid 10001:
       #     chown 10001 secrets/AuthKey_*.p8 && chmod 600 secrets/*.p8

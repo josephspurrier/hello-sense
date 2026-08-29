@@ -140,7 +140,7 @@ verify: ## Prove the stack actually works, not just that it started
 	@$(COMPOSE) ps --format 'table {{.Service}}\t{{.Status}}'
 	@echo ""
 	@echo "== orb app API =="
-	@if curl -fsS -m 5 http://localhost:$${ORB_API_PUBLISH:-9999}/ping >/dev/null 2>&1; then \
+	@if curl -fsS -m 5 http://localhost:$${ORB_API_PORT:-9999}/ping >/dev/null 2>&1; then \
 	  echo "  /ping           OK"; \
 	else \
 	  echo "  /ping           FAILED"; exit 1; \

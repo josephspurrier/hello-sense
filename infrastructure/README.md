@@ -255,10 +255,28 @@ image. That last one matters more than it sounds; see below.
 | Port | Service | Who talks to it |
 |---|---|---|
 | 8081 | orb edge | `sense_server.py` |
-| 9999 | orb app API | the iPhone |
+| 9999 | orb app API | the iPhone, or Caddy |
 | 5432 | postgres | bound to `127.0.0.1` by default |
 | 8090 | orb-algo | orb only, not published |
 | 80, 443 | sense-server | the Sense. Linux only |
+| 8443 | Caddy | the app, over the internet. `ORB_PUBLIC=1` only |
+
+Each orb port is configured as a port plus an optional bind address:
+`ORB_EDGE_PORT` with `ORB_EDGE_BIND_IP`, and `ORB_API_PORT` with
+`ORB_API_BIND_IP`. Empty bind addresses publish on all interfaces, which is what
+a LAN deployment wants.
+
+**On an internet-facing host, set both bind addresses to `127.0.0.1`.** Caddy
+reaches orb by service name over the Compose network, and `sense-server` reaches
+the edge over the host's loopback, so neither port needs a public interface and
+neither depends on the firewall being configured correctly.
+
+The port and the address are separate variables for a reason. `ORB_EDGE_PORT` is
+also interpolated into `sense-server`'s upstream URL, where only a bare number is
+valid. These were one variable each until 2026-08-29, and putting an address in
+the edge one produced `http://127.0.0.1:127.0.0.1:8081`: `sense-server` started,
+logged its upstreams, bound 80 and 443, reported itself healthy, and failed every
+device request at proxy time.
 
 ## Supervision, and a real macOS caveat
 
