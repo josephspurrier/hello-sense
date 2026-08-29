@@ -1,0 +1,13 @@
+[Unit]
+Description=Renew the orb app API certificate twice daily
+
+[Timer]
+# Twice a day is what Let's Encrypt recommends. Certbot only acts inside the
+# renewal window, so most runs do nothing. The randomised delay keeps everyone's
+# renewals from landing on the CA at the same instant.
+OnCalendar=*-*-* 03,15:00:00
+RandomizedDelaySec=3h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

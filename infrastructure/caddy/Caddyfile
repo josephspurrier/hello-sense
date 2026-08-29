@@ -1,0 +1,31 @@
+# Caddy in front of orb's app API.
+#
+# This exists because the app API and the device endpoint cannot share a TLS
+# terminator: the Sense offers one cipher and no supported_groups, which Caddy
+# refuses, and only tlslite-ng will talk to it. So sense-server keeps 80 and
+# 443, and the app lives here on 8443.
+
+{
+	# Caddy must NOT try to get its own certificate. Let's Encrypt validates
+	# http-01 on port 80, which belongs to the device, so certbot obtains the
+	# cert instead (through sense-server's ACME handler) and we point at the
+	# files. Leaving this on would also make Caddy open port 80 for
+	# HTTP-to-HTTPS redirects, which is exactly the collision being avoided.
+	auto_https off
+	admin off
+}
+
+https://{$APP_DOMAIN}:8443 {
+	tls /certs/live/{$APP_DOMAIN}/fullchain.pem /certs/live/{$APP_DOMAIN}/privkey.pem
+
+	encode gzip
+
+	# orb by service name on the Compose network. Its API port is not published
+	# to the host in a public deployment; this is the only way in.
+	reverse_proxy orb:9999
+
+	log {
+		output stdout
+		format console
+	}
+}

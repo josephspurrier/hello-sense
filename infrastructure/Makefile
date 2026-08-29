@@ -28,6 +28,17 @@ else
   COMPOSE_FILE := docker-compose.yml
   SENSE_NOTE := ON THE HOST, not Docker (see README)
 endif
+
+# ORB_PUBLIC=1 adds Caddy in front of the app API, on 8443, with a real
+# certificate. Opt-in, because it is the only listener here that faces the
+# internet and it needs a certificate in /etc/letsencrypt that a home
+# deployment has no reason to have.
+ifneq ($(strip $(ORB_PUBLIC)),)
+  COMPOSE_FILE := $(COMPOSE_FILE):docker-compose.public.yml
+  PUBLIC_NOTE := yes, Caddy on $${APP_PUBLISH:-8443}
+else
+  PUBLIC_NOTE := no (set ORB_PUBLIC=1)
+endif
 export COMPOSE_FILE
 
 COMPOSE := docker compose

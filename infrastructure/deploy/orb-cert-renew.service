@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew the orb app API certificate
+Documentation=https://github.com/josephspurrier/hello-sense
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/orb-cert-renew.sh

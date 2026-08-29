@@ -1,0 +1,43 @@
+# Public overlay: puts the app API on the internet behind a real certificate.
+#
+#     ORB_PUBLIC=1 make up
+#
+# Off by default. A home deployment does not need it: the phone talks to orb's
+# API port directly on the LAN.
+#
+# WHY THIS IS A SEPARATE FILE
+#
+# It is the only part of the stack that faces the public internet, and it is
+# the only part that depends on state outside the repository (a certificate in
+# /etc/letsencrypt, issued by certbot). Keeping it separate means the home
+# deployment cannot accidentally acquire an internet-facing listener, and the
+# public one is a deliberate, visible act.
+#
+# See README, "A certificate for the app API", for how the certificate is
+# obtained without taking port 80 away from the Sense.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      orb:
+        condition: service_healthy
+    environment:
+      # No default. An empty domain would produce a Caddyfile that matches
+      # nothing and a listener that answers everything with a 404, which is a
+      # confusing way to find out .env is incomplete.
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env, e.g. sense.example.com}
+    ports:
+      - "${APP_PUBLISH:-8443}:8443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro,z
+      # certbot's output, read-only. `live/` holds symlinks into `archive/`, so
+      # the whole tree has to be mounted rather than the two files.
+      - /etc/letsencrypt:/certs:ro,z
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
