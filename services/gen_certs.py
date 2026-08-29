@@ -33,12 +33,16 @@ SANS = ["*.hello.is", "hello.is", "time.hello.is", "ntp.hello.is",
 # them with the console command `dev 1` / `dev 0`, and a certificate that only
 # covered one set would make that switch fail the handshake instead of just
 # changing servers.
-EXTRA_DOMAIN = os.environ.get("SENSE_EXTRA_DOMAIN", "").strip()
-if EXTRA_DOMAIN:
-    SANS += ["*." + EXTRA_DOMAIN, EXTRA_DOMAIN,
-             "sense-in." + EXTRA_DOMAIN,
-             "messeji." + EXTRA_DOMAIN,
-             "time." + EXTRA_DOMAIN]
+# Comma-separated, so a move between domains can be covered by one certificate
+# and done in either order.
+for _d in os.environ.get("SENSE_EXTRA_DOMAIN", "").split(","):
+    _d = _d.strip()
+    if not _d:
+        continue
+    SANS += ["*." + _d, _d,
+             "sense-in." + _d,
+             "messeji." + _d,
+             "time." + _d]
 
 
 def rsa_key():

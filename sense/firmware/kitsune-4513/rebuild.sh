@@ -33,6 +33,10 @@ KIT_VER="${KIT_VER:-4513}"
 CUSTOM=""
 if [ "$KIT_VER" != "4513" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_DEV_DOMAIN:-}" ] && [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then
+  echo "set one of KITSUNE_DEV_DOMAIN or KITSUNE_PROD_DOMAIN, not both" >&2; exit 1
+fi
 
 if [ -n "$CUSTOM" ]; then
   # "-" not ":-", so an empty value stays empty and means "do not compare".
@@ -105,20 +109,26 @@ done
 #
 # Unset, nothing is touched and the build stays byte-exact. Set, it is not: the
 # strings differ, so the SHA1 will not match 4513 and the check below is skipped.
-if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then
-  echo ">> rewriting DEV endpoints to *.$KITSUNE_DEV_DOMAIN"
+if [ -n "${KITSUNE_DEV_DOMAIN:-}${KITSUNE_PROD_DOMAIN:-}" ]; then
+  if [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then
+    SLOT=PROD; DOMAIN_VALUE="$KITSUNE_PROD_DOMAIN"
+  else
+    SLOT=DEV;  DOMAIN_VALUE="$KITSUNE_DEV_DOMAIN"
+  fi
+  echo ">> rewriting $SLOT endpoints to *.$DOMAIN_VALUE"
   command -v python3 >/dev/null || { echo "python3 required for KITSUNE_DEV_DOMAIN"; exit 1; }
-  DOMAIN="$KITSUNE_DEV_DOMAIN" python3 - "$WORK/src" <<'REWRITE'
+  DOMAIN="$DOMAIN_VALUE" SLOT="$SLOT" python3 - "$WORK/src" <<'REWRITE'
 import os, re, sys
 root, domain = sys.argv[1], os.environ["DOMAIN"]
+slot = os.environ.get("SLOT", "DEV")
 
 ep = os.path.join(root, "kitsune", "endpoints.h")
 s = open(ep).read()
 # Two of each: the file defines them inside an #ifdef USE_SHA2. 4513 compiles
 # the non-SHA2 branch, but rewrite both so this does not silently depend on a
 # build flag that could change underneath it.
-subs = [(r'(#define\s+DEV_DATA_SERVER\s+)"[^"]*"', r'\1"sense-in.%s"' % domain),
-        (r'(#define\s+DEV_MESSEJI_SERVER\s+)"[^"]*"', r'\1"messeji.%s"' % domain)]
+subs = [(r'(#define\s+%s_DATA_SERVER\s+)"[^"]*"' % slot, r'\1"sense-in.%s"' % domain),
+        (r'(#define\s+%s_MESSEJI_SERVER\s+)"[^"]*"' % slot, r'\1"messeji.%s"' % domain)]
 for pat, rep in subs:
     s, n = re.subn(pat, rep, s)
     assert n == 2, "endpoints.h: expected 2 matches for %s, got %d" % (pat, n)
@@ -131,14 +141,20 @@ st = os.path.join(root, "kitsune", "sys_time.c")
 s = open(st).read()
 old = '#define TIME_HOST "time.hello.is"'
 assert s.count(old) == 1, "sys_time.c: TIME_HOST not found exactly once"
+# In DEV mode the new domain is what `dev 1` selects. In PROD mode it is the
+# default and `dev 1` is the way back to hello.is, which the LAN DNS answers.
+if slot == "PROD":
+    on_dev, on_prod = "time.hello.is", "time." + domain
+else:
+    on_dev, on_prod = "time." + domain, "time.hello.is"
 new = ('#include <stdbool.h>\n'   # wifi_cmd.h brings in stdint, not stdbool
        'extern volatile bool use_dev_server;\n'
        'static char * _time_host(void){\n'
-       '\treturn use_dev_server ? "time.%s" : "time.hello.is";\n'
+       '\treturn use_dev_server ? "%s" : "%s";\n'
        '}\n'
-       '#define TIME_HOST _time_host()' % domain)
+       '#define TIME_HOST _time_host()' % (on_dev, on_prod))
 open(st, "w").write(s.replace(old, new))
-print("   endpoints.h and sys_time.c rewritten")
+print("   %s endpoints rewritten in endpoints.h and sys_time.c" % slot)
 REWRITE
 fi
 
