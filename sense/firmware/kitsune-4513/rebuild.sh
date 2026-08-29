@@ -25,7 +25,21 @@ IMAGE="${IMAGE:-kitsune-byteexact:5.1.5}"
 PLATFORM="${PLATFORM:-linux/386}"
 KITSUNE_TAG="${KITSUNE_TAG:-1.9.2}"
 KIT_VER="${KIT_VER:-4513}"
-EXPECT_SHA="${EXPECT_SHA:-0c5f639e1290df0e3a5f8641d670923ed71a5e63}"
+
+# Anything that is not a stock 4513 build is "custom": it cannot match the
+# reference SHA1, and it must not overwrite out/kitsune.bin, which is the
+# committed reference every other check here compares against. Both consequences
+# follow from this one flag rather than being decided separately and drifting.
+CUSTOM=""
+if [ "$KIT_VER" != "4513" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then CUSTOM=1; fi
+
+if [ -n "$CUSTOM" ]; then
+  # "-" not ":-", so an empty value stays empty and means "do not compare".
+  EXPECT_SHA="${EXPECT_SHA-}"
+else
+  EXPECT_SHA="${EXPECT_SHA-0c5f639e1290df0e3a5f8641d670923ed71a5e63}"
+fi
 
 # Default source: the local backup clone if present, else the public mirror.
 # Walk up from here to find a `github-backup/kitsune` checkout (its location
@@ -126,7 +140,6 @@ new = ('#include <stdbool.h>\n'   # wifi_cmd.h brings in stdint, not stdbool
 open(st, "w").write(s.replace(old, new))
 print("   endpoints.h and sys_time.c rewritten")
 REWRITE
-  EXPECT_SHA=""   # no longer the 4513 binary, so nothing to compare against
 fi
 
 # 3. Run the full build inside the container.
@@ -146,9 +159,11 @@ docker run --rm --platform "$PLATFORM" \
 # byte-exact 4513 reference and overwriting it would quietly destroy the thing
 # every other check in this directory compares against.
 mkdir -p "$HERE/out"
-if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then
-  OUT_BIN="$HERE/out/kitsune-custom.bin"
-  OUT_ELF="$HERE/out/kitsune-custom.out"
+if [ -n "$CUSTOM" ]; then
+  # Named by build number, because two custom builds are otherwise two writes to
+  # one filename and the second silently destroys the first.
+  OUT_BIN="$HERE/out/kitsune-custom-$KIT_VER.bin"
+  OUT_ELF="$HERE/out/kitsune-custom-$KIT_VER.out"
 else
   OUT_BIN="$HERE/out/kitsune.bin"
   OUT_ELF="$HERE/out/kitsune.out"

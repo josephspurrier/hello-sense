@@ -16,4 +16,4 @@ sense_fs_backup/
 # A firmware built with KITSUNE_DEV_DOMAIN carries your own hostnames. It is a
 # build artifact, not a reference, and the reference (out/kitsune.bin) is
 # committed alongside it.
-sense/firmware/kitsune-4513/out/kitsune-custom.*
+sense/firmware/kitsune-4513/out/kitsune-custom-*

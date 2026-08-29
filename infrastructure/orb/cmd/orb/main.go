@@ -20,15 +20,18 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/josephspurrier/hello-orb/orb/internal/api"
 	"github.com/josephspurrier/hello-orb/orb/internal/edge"
+	"github.com/josephspurrier/hello-orb/orb/internal/ota"
 	"github.com/josephspurrier/hello-orb/orb/internal/push"
 	"github.com/josephspurrier/hello-orb/orb/internal/scoring"
 	"github.com/josephspurrier/hello-orb/orb/internal/store"
@@ -47,6 +50,8 @@ func main() {
 		noWorker = flag.Bool("no-worker", false, "serve the edge only, run no periodic jobs")
 		fwDir    = flag.String("firmware-dir", os.Getenv("ORB_FIRMWARE_DIR"),
 			"directory of OTA images to serve at /firmware/{name}; empty disables it")
+		otaWindow = flag.String("ota-window", envOr("ORB_OTA_WINDOW", "2-5"),
+			"hours in the device's local time when an update may be offered, as START-END")
 		debug = flag.Bool("debug", false, "debug logging")
 
 		// Apple push. All four are required together; with any missing, push is
@@ -84,6 +89,16 @@ func main() {
 	h.FirmwareDir = *fwDir
 	if *fwDir != "" {
 		log.Warn("firmware serving ENABLED", "dir", *fwDir)
+	}
+	if w, err := parseOTAWindow(*otaWindow); err != nil {
+		log.Error("bad -ota-window, keeping the default", "value", *otaWindow, "err", err)
+	} else {
+		h.OTAWindow = w
+		if w != ota.DefaultWindow {
+			// Worth shouting about. The default exists so an update cannot start
+			// while the owner is asleep, and this is somebody's alarm clock.
+			log.Warn("OTA window widened from the default", "start", w.StartHour, "end", w.EndHour)
+		}
 	}
 
 	// The scorer is built here rather than inside the worker, because the app
@@ -207,4 +222,16 @@ func apnsHost(production bool) string {
 		return push.HostProduction
 	}
 	return push.HostSandbox
+}
+
+// parseOTAWindow reads "START-END" as hours in the device's local time.
+func parseOTAWindow(v string) (ota.Window, error) {
+	var start, end int
+	if _, err := fmt.Sscanf(strings.TrimSpace(v), "%d-%d", &start, &end); err != nil {
+		return ota.Window{}, fmt.Errorf("want START-END, e.g. 2-5: %w", err)
+	}
+	if start < 0 || start > 23 || end < 0 || end > 23 {
+		return ota.Window{}, fmt.Errorf("hours must be 0-23, got %d-%d", start, end)
+	}
+	return ota.Window{StartHour: start, EndHour: end}, nil
 }
