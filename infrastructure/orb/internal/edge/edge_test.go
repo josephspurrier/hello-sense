@@ -353,3 +353,43 @@ func TestTimeResponseDecodesToNow(t *testing.T) {
 		}
 	}
 }
+
+// A firmware built for a different domain asks for time.<domain>, and the
+// routing used to test for the literal "time.hello.is". This drives the real
+// server on the new-style host and asserts it reaches the clock handler, so a
+// domain change cannot silently stop being recognised as a clock request.
+func TestClockRoutingIsDomainAgnostic(t *testing.T) {
+	srv, st := newServer(t, false)
+	const deviceID = "49F277D951568DF3"
+	key := deviceKey(t, st, deviceID)
+
+	reqPayload, _ := proto.Marshal(&pbntp.NTPDataPacket{OriginTs: proto.Int64(1)})
+	body := signAsDevice(t, key, reqPayload)
+
+	for _, host := range []string{
+		"time.hello.is",
+		"ntp.hello.is",
+		"time.orb.example.com",
+		"time.orb.example.com:80",
+	} {
+		t.Run(host, func(t *testing.T) {
+			req, _ := http.NewRequest("POST", srv.URL+"/", bytes.NewReader(body))
+			req.Host = host
+			// Deliberately NO device-id header: that fallback would answer a
+			// clock request whatever the host said, and would hide a routing
+			// regression rather than expose it.
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			// 404 is byHost's "unrouted device request" branch, and the only
+			// answer that means the host was not recognised. Anything else,
+			// including the 400 for a request with no device id, means routing
+			// worked and the handler simply did not like the request.
+			if resp.StatusCode == http.StatusNotFound {
+				t.Fatalf("host %q was not routed to the clock handler (404)", host)
+			}
+		})
+	}
+}

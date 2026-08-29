@@ -93,13 +93,30 @@ func (h *Handler) Routes() http.Handler {
 	return mux
 }
 
+// hostLabel returns the first label of a Host header, without any port.
+//
+// "time.hello.is" and "time.orb.example.com" both give "time", which is what
+// lets the same routing work whatever domain the firmware was built for.
+func hostLabel(host string) string {
+	if i := strings.IndexByte(host, ':'); i >= 0 {
+		host = host[:i]
+	}
+	if i := strings.IndexByte(host, '.'); i >= 0 {
+		host = host[:i]
+	}
+	return host
+}
+
 // byHost handles the paths that are distinguished by hostname rather than path.
 // hello-time exposes exactly one route at "/", so the device's own path is not
 // meaningful there.
 func (h *Handler) byHost(w http.ResponseWriter, r *http.Request) {
 	host := strings.ToLower(r.Host)
 	switch {
-	case strings.Contains(host, "time.hello.is"), strings.Contains(host, "ntp.hello.is"):
+	// Matched on the FIRST LABEL, not the whole hello.is name. A firmware built
+	// for a different domain asks for time.example.com, and the old substring
+	// test silently failed to recognise that as a clock request.
+	case hostLabel(host) == "time", hostLabel(host) == "ntp":
 		h.timeSync(w, r)
 
 	// A POST to "/" carrying a device id is a clock request whatever the Host
