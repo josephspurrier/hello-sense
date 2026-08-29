@@ -63,6 +63,7 @@ without them:
 | `sense/firmware/kitsune-4513/` | build recipe for, and a rebuild of, Hello's Sense firmware, including `out/kitsune.bin` and `out/kitsune.out` |
 | `sense/firmware/kitsune-4513/submodules/*.bundle` | git bundles of Hello's firmware submodules |
 | `pill/firmware/pill-1.0.3/out/` | compiled Hello Sleep Pill firmware and bootloader images |
+| `docs/images/sense-orb.jpg` | Hello's own product photograph of the Sense and Sleep Pill. It carries a visible "© Hello" credit. Used here to identify the hardware; replace it with your own photograph if that matters to you. |
 
 Upstream, for reference:
 

@@ -1,8 +1,17 @@
 # Reviving the Hello Sense Sleep System
 
+<img src="docs/images/sense-orb.jpg" width="260" align="right" alt="The Hello Sense hub and Sleep Pill">
+
 Hello shut down in 2017 and took its cloud with it, which turned every Sense
 into an ornament. This brings the whole system back on hardware you own: the
 Sense hub, the Sleep Pill, a replacement backend, and the iOS app.
+
+The **Sense** is the perforated sphere: a TI CC3200 that measures temperature,
+humidity, light, sound and air quality, and wakes you with an alarm. The
+**Sleep Pill** is the disc beside it, a Nordic nRF51422 accelerometer that
+clips to your pillow and reports motion to the Sense over ANT.
+
+<br clear="right">
 
 It is not a reimplementation of the parts that matter least. The sleep
 algorithms are Hello's own, kept in Java and run unchanged; everything around
