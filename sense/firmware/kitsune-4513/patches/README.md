@@ -31,6 +31,20 @@ Applied when `KITSUNE_OTA_FLUSH_FIX=1`. Two independent OTA correctness fixes in
    from "committing" a slot after the bootloader rejected a torn image and fell
    back, which used to corrupt the active-slot bookkeeping.
 
+## `ota-write-fix-only.patch`
+
+The boot-record write fix WITHOUT the commit guard: it reproduces the firmware
+that shipped in builds 4526-4530 (the ones that installed). Select it with
+`KITSUNE_OTA_PATCH=patches/ota-write-fix-only.patch` alongside
+`KITSUNE_OTA_FLUSH_FIX=1`. Useful for isolating the commit guard from a flash
+test, since the guard first shipped in 4531 (which failed to install) and is
+also what makes that image ~300 bytes larger. Derived from
+`ota-reliability.patch` by reverting the two commit-guard additions (the
+`_running_image_is_new` helper and the guarded flip in `boot_commit_ota`).
+
+`rebuild.sh` applies `${KITSUNE_OTA_PATCH:-patches/ota-reliability.patch}`, so
+the default build gets both fixes and this variable overrides which patch runs.
+
 ## What is NOT a patch
 
 The endpoint and time-host rewrites (`KITSUNE_PROD_DOMAIN` /

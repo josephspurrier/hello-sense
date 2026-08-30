@@ -192,10 +192,15 @@ fi
 # image differ from stock 4513, so the SHA1 check is skipped like any custom
 # build. --whitespace=nowarn: the 1.9.2 tree has space-before-tab indentation
 # the reset-site edits inherit, faithful to the shipped firmware.
+# KITSUNE_OTA_PATCH selects which patch to apply (default: both fixes). Point it
+# at patches/ota-write-fix-only.patch to reproduce the pre-commit-guard image
+# (build 4530 and earlier), which is useful for isolating the guard from a
+# flash test.
 if [ -n "${KITSUNE_OTA_FLUSH_FIX:-}" ]; then
-  echo ">> applying patches/ota-reliability.patch"
-  git -C "$WORK/src" apply --whitespace=nowarn "$HERE/patches/ota-reliability.patch"
-  echo "   OTA reliability fixes applied (boot-record write + commit guard)"
+  OTA_PATCH="${KITSUNE_OTA_PATCH:-patches/ota-reliability.patch}"
+  echo ">> applying $OTA_PATCH"
+  git -C "$WORK/src" apply --whitespace=nowarn "$HERE/$OTA_PATCH"
+  echo "   OTA patch applied: $OTA_PATCH"
 fi
 
 # 3. Run the full build inside the container.
