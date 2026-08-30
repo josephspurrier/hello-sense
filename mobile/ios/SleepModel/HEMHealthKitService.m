@@ -307,13 +307,26 @@ static CGFloat const HEMHKServiceBackFillLimit = 3;
     
     HKSample* sample = nil;
     NSMutableArray* samples = [NSMutableArray arrayWithCapacity:timelineCount];
-    
+
     for (SENTimeline* timeline in timelines) {
         sample = [self sleepSampleForType:HKCategoryValueSleepAnalysisInBed fromTimeline:timeline];
         if (sample) {
             [samples addObject:sample];
         }
-        
+
+        // Sleep stages exist from iOS 16. Where available, per-segment stage
+        // samples replace the old single Asleep block: Health then computes
+        // Time Asleep from the stage samples and correctly excludes the
+        // awake stretches this timeline knows about, where the single block
+        // counted every minute between falling asleep and waking as sleep.
+        if (@available(iOS 16.0, *)) {
+            NSArray* stageSamples = [self sleepStageSamplesFromTimeline:timeline];
+            if ([stageSamples count] > 0) {
+                [samples addObjectsFromArray:stageSamples];
+                continue;
+            }
+        }
+
         sample = [self sleepSampleForType:HKCategoryValueSleepAnalysisAsleep fromTimeline:timeline];
         if (sample) {
             [samples addObject:sample];
@@ -330,6 +343,112 @@ static CGFloat const HEMHKServiceBackFillLimit = 3;
     [[self hkStore] saveObjects:samples withCompletion:^(BOOL success, NSError *error) {
         completion (error);
     }];
+}
+
+// sleepStageSamplesFromTimeline maps the timeline's segments onto Apple's
+// sleep stages, one sample per stretch of a state, bounded by the fell-asleep
+// and woke-up events.
+//
+// The mapping and what it is based on:
+//
+//	awake          -> Awake
+//	light, medium  -> Core     (Apple's Core is N1+N2, which is what the
+//	                            lighter two of Sense's three depths describe)
+//	sound          -> Deep
+//	unknown        -> AsleepUnspecified, so a gap in classification still
+//	                  counts toward Time Asleep instead of vanishing
+//
+// No REM: Sense's motion-based depths cannot see it, and inventing one would
+// put fiction in someone's medical records. Adjacent segments that map to the
+// same stage are merged, since the timeline slices by hour boundaries that
+// mean nothing to Health.
+- (NSArray*)sleepStageSamplesFromTimeline:(SENTimeline*)timeline API_AVAILABLE(ios(16.0)) {
+    if (![self timelineHasSufficientData:timeline]) {
+        return @[];
+    }
+
+    NSDate* fellAsleep = nil;
+    NSDate* wokeUp = nil;
+    NSString* timeZoneName = nil;
+    for (SENTimelineSegment* segment in [timeline segments]) {
+        if ([segment type] == SENTimelineSegmentTypeFellAsleep && !fellAsleep) {
+            fellAsleep = [segment date];
+            timeZoneName = [[segment timezone] name];
+        } else if ([segment type] == SENTimelineSegmentTypeWokeUp) {
+            wokeUp = [segment date]; // keep the last one found
+        }
+    }
+    if (!fellAsleep || !wokeUp || [fellAsleep compare:wokeUp] != NSOrderedAscending) {
+        return @[];
+    }
+
+    HKCategoryType* hkSleepCategory = [HKObjectType categoryTypeForIdentifier:HKCategoryTypeIdentifierSleepAnalysis];
+    NSDictionary* metadata = timeZoneName ? @{HKMetadataKeyTimeZone : timeZoneName} : nil;
+    NSMutableArray* samples = [NSMutableArray array];
+
+    __block NSInteger pendingValue = -1;
+    __block NSDate* pendingStart = nil;
+    __block NSDate* pendingEnd = nil;
+
+    void (^flush)(void) = ^{
+        if (pendingValue >= 0 && [pendingStart compare:pendingEnd] == NSOrderedAscending) {
+            [samples addObject:[HKCategorySample categorySampleWithType:hkSleepCategory
+                                                                  value:pendingValue
+                                                              startDate:pendingStart
+                                                                endDate:pendingEnd
+                                                               metadata:metadata]];
+        }
+    };
+
+    for (SENTimelineSegment* segment in [timeline segments]) {
+        if ([segment duration] <= 0) {
+            continue; // point events; the durations carry the night
+        }
+
+        // clamp to the asleep window so pre-sleep tossing stays out of it
+        NSDate* start = [segment date];
+        NSDate* end = [start dateByAddingTimeInterval:[segment duration]];
+        if ([end compare:fellAsleep] != NSOrderedDescending
+            || [start compare:wokeUp] != NSOrderedAscending) {
+            continue;
+        }
+        if ([start compare:fellAsleep] == NSOrderedAscending) {
+            start = fellAsleep;
+        }
+        if ([end compare:wokeUp] == NSOrderedDescending) {
+            end = wokeUp;
+        }
+
+        NSInteger value;
+        switch ([segment sleepState]) {
+            case SENTimelineSegmentSleepStateAwake:
+                value = HKCategoryValueSleepAnalysisAwake;
+                break;
+            case SENTimelineSegmentSleepStateLight:
+            case SENTimelineSegmentSleepStateMedium:
+                value = HKCategoryValueSleepAnalysisAsleepCore;
+                break;
+            case SENTimelineSegmentSleepStateSound:
+                value = HKCategoryValueSleepAnalysisAsleepDeep;
+                break;
+            default:
+                value = HKCategoryValueSleepAnalysisAsleepUnspecified;
+                break;
+        }
+
+        if (value == pendingValue && pendingEnd
+            && [pendingEnd timeIntervalSinceDate:start] > -1.0) {
+            pendingEnd = end; // contiguous same-stage stretch, extend it
+        } else {
+            flush();
+            pendingValue = value;
+            pendingStart = start;
+            pendingEnd = end;
+        }
+    }
+    flush();
+
+    return samples;
 }
 
 - (HKSample*)sleepSampleForType:(HKCategoryValueSleepAnalysis)type fromTimeline:(SENTimeline*)timeline {
