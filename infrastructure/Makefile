@@ -188,18 +188,25 @@ restore: ## Restore DUMP=<file> into the orb database. Destructive.
 
 ## -------------------------------------------------------------- hygiene ----
 
+# Runs from the repository root, not this directory. `git ls-files` invoked
+# inside a subdirectory lists only that subdirectory, so this used to inspect 181
+# files out of 4934 and report "clean" about the other 97% of the tree.
 check-secrets: ## Fail if anything secret would be committed
 	@git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { \
 	  echo "  not a git repository, so there is nothing to check yet."; \
 	  echo "  run this again once this directory is committed."; exit 0; }
 	@echo "checking for secrets that git can see..."
-	@bad=$$(git ls-files --cached --others --exclude-standard 2>/dev/null \
+	@root=$$(git rev-parse --show-toplevel); \
+	bad=$$(git -C "$$root" ls-files --cached --others --exclude-standard 2>/dev/null \
 	  | grep -E '(^|/)(\.env$$|secrets/|.*\.(p8|key|pem|der|crt|csr|srl|jar|dump)$$)' || true); \
 	if [ -n "$$bad" ]; then \
 	  echo ""; echo "  REFUSING: these are visible to git and must not be:"; \
 	  echo "$$bad" | sed 's/^/    /'; echo ""; exit 1; \
 	fi
 	@echo "  clean: no keys, certs, dumps or .env are tracked or untracked-but-visible"
+	@echo "  NOTE: this checks FILENAMES only. It cannot tell that a firmware"
+	@echo "        image contains your hostnames; the .gitignore allowlist in"
+	@echo "        sense/firmware/kitsune-4513/out/ is what handles that."
 
 clean: ## Remove built images. Data is untouched.
 	@$(COMPOSE) down --rmi local
