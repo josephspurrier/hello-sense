@@ -200,6 +200,42 @@ func (h *Handler) postToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// DELETE /v1/oauth2/token: sign out.
+//
+// The app's Sign Out button clears its keychain only after this succeeds
+// (SENAuthorizationService.deauthorize), so a missing route here does not
+// merely lose telemetry, it pins the person to the account they are on.
+//
+// Runs behind auth like any other authenticated endpoint, then re-reads the
+// header for the token value: the middleware proves the credential is live but
+// deliberately hands handlers only the account, and this is the one endpoint
+// whose subject is the credential itself. Only the presented token dies; the
+// reference leaves the account's other sessions signed in, and so does this.
+func (h *Handler) deleteToken(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := AccountFrom(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	appID, uuid, ok := parseToken(bearerToken(r))
+	if !ok {
+		// Unreachable behind auth, which parsed the same header. Refusing is
+		// still righter than guessing which token to disable.
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.store.DisableToken(r.Context(), appID, uuid); err != nil {
+		h.log.Error("disable token", "account", accountID, "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	h.log.Info("signed out", "account", accountID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func defaultString(v, fallback string) string {
 	if v == "" {
 		return fallback

@@ -19,7 +19,10 @@
 //
 // plus the writes: PATCH /v2/timeline/{date}/events/{event}/{ts} (the
 // correction that feeds learning), POST /v2/alarms/{ts}, POST /v1/timezone,
-// PUT/POST /v1/account, POST /v1/questions/save/.
+// PUT/POST /v1/account, POST /v1/questions/save/, and the credential set that
+// never showed in that log because one phone stayed signed in for its whole
+// span: POST /v1/account/{email,password} and DELETE /v1/oauth2/token
+// (registration.go, oauth.go).
 //
 // Every response shape here is verified against the Java stack by cmd/apidiff
 // rather than by reading suripu's resource classes. Reading them is how you
@@ -71,10 +74,16 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET /v2/ping", h.ping)
 	h.mux.HandleFunc("GET /ping", h.ping)
 	h.mux.HandleFunc("POST /v1/oauth2/token", h.postToken)
+	// Registration is unauthenticated by nature: it creates the credentials
+	// everything else authenticates with.
+	h.mux.HandleFunc("POST /v1/account", h.postAccount)
 
 	// Authenticated.
+	h.mux.Handle("DELETE /v1/oauth2/token", h.auth(h.deleteToken))
 	h.mux.Handle("GET /v1/account", h.auth(h.getAccount))
 	h.mux.Handle("PUT /v1/account", h.auth(h.putAccount))
+	h.mux.Handle("POST /v1/account/email", h.auth(h.postAccountEmail))
+	h.mux.Handle("POST /v1/account/password", h.auth(h.postAccountPassword))
 	h.mux.Handle("GET /v1/timezone", h.auth(h.getTimezone))
 	h.mux.Handle("POST /v1/timezone", h.auth(h.postTimezone))
 	h.mux.Handle("GET /v2/devices", h.auth(h.getDevices))
@@ -179,17 +188,11 @@ func withAccount(ctx context.Context, accountID int64) context.Context {
 
 // auth resolves the bearer token to an account.
 //
-// suripu accepts the token either as "Bearer <token>" or bare, and the iOS app
-// has sent both over the years, so both are accepted here. An unknown or
-// expired token is 401 with no body: saying which of the two it was tells an
-// attacker whether a token ever existed.
+// An unknown or expired token is 401 with no body: saying which of the two it
+// was tells an attacker whether a token ever existed.
 func (h *Handler) auth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok := strings.TrimSpace(r.Header.Get("Authorization"))
-		if i := strings.IndexByte(tok, ' '); i >= 0 && strings.EqualFold(tok[:i], "bearer") {
-			tok = strings.TrimSpace(tok[i+1:])
-		}
-		appID, uuid, ok := parseToken(tok)
+		appID, uuid, ok := parseToken(bearerToken(r))
 		if !ok {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -208,6 +211,17 @@ func (h *Handler) auth(next http.HandlerFunc) http.Handler {
 
 		next(w, r.WithContext(withAccount(r.Context(), accountID)))
 	})
+}
+
+// bearerToken pulls the credential out of the Authorization header. suripu
+// accepts it either as "Bearer <token>" or bare, and the iOS app has sent both
+// over the years, so both are accepted here.
+func bearerToken(r *http.Request) string {
+	tok := strings.TrimSpace(r.Header.Get("Authorization"))
+	if i := strings.IndexByte(tok, ' '); i >= 0 && strings.EqualFold(tok[:i], "bearer") {
+		tok = strings.TrimSpace(tok[i+1:])
+	}
+	return tok
 }
 
 // parseToken splits the credential the app sends into its two halves.

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/josephspurrier/hello-orb/orb/internal/alarm"
 	"github.com/josephspurrier/hello-orb/orb/internal/ota"
@@ -823,6 +824,131 @@ func (s *Store) InsertToken(ctx context.Context, accessToken, refreshToken strin
 		fmt.Sprintf("%d seconds", int64(expiresIn.Seconds())))
 	if err != nil {
 		return fmt.Errorf("store: insert token: %w", err)
+	}
+	return nil
+}
+
+// ErrDuplicateEmail means the address already belongs to an account. Its own
+// error rather than a wrapped pg code because both registration and the email
+// change answer it with a specific status, and neither should be parsing
+// driver errors to find out.
+var ErrDuplicateEmail = errors.New("store: email already registered")
+
+// isUniqueViolation reports whether err is Postgres complaining about a
+// duplicate key. 23505 is the SQLSTATE for unique_violation, and the accounts
+// table's only unique constraints are email and external_id, the latter being
+// freshly generated here.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+// NewAccount is what registration stores. Name is already resolved: the app
+// registers with firstname only, and the reference copies it into the
+// not-null name column rather than storing a null.
+type NewAccount struct {
+	Email        string
+	PasswordHash string
+	Name         string
+	FirstName    *string
+	LastName     *string
+	Gender       string
+	GenderOther  string
+	HeightCM     *int32
+	WeightGrams  *int32
+	Birthdate    *time.Time
+	TZOffsetMS   int32
+}
+
+// InsertAccount creates an account.
+//
+// external_id is generated here, in the same statement. New accounts are the
+// one case where minting a UUID is correct: the app learns whatever id this
+// insert produces, unlike the migrated rows (see 0002_account_identity.sql)
+// whose ids the app already held.
+func (s *Store) InsertAccount(ctx context.Context, n NewAccount) (AccountRow, error) {
+	var id int64
+	err := s.pool.QueryRow(ctx, `
+		INSERT INTO accounts
+			(external_id, email, password_hash, name, firstname, lastname,
+			 gender, gender_other, height_cm, weight_grams, birthdate, tz_offset_ms)
+		VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id`,
+		n.Email, n.PasswordHash, n.Name, n.FirstName, n.LastName,
+		n.Gender, n.GenderOther, n.HeightCM, n.WeightGrams, n.Birthdate,
+		n.TZOffsetMS).Scan(&id)
+	if isUniqueViolation(err) {
+		return AccountRow{}, ErrDuplicateEmail
+	}
+	if err != nil {
+		return AccountRow{}, fmt.Errorf("store: insert account: %w", err)
+	}
+	return s.Account(ctx, id)
+}
+
+// UpdateEmail changes an account's address, guarded by last_modified exactly
+// as UpdateAccount is: the app sends the whole account it last read, and the
+// reference's UPDATE carries the same WHERE clause.
+func (s *Store) UpdateEmail(ctx context.Context, accountID, lastModifiedMS int64, email string) (AccountRow, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE accounts SET email = $3, last_modified = now()
+		WHERE id = $1
+		  AND (EXTRACT(EPOCH FROM last_modified) * 1000)::bigint = $2`,
+		accountID, lastModifiedMS, email)
+	if isUniqueViolation(err) {
+		return AccountRow{}, ErrDuplicateEmail
+	}
+	if err != nil {
+		return AccountRow{}, fmt.Errorf("store: update email: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return AccountRow{}, ErrStaleAccount
+	}
+	return s.Account(ctx, accountID)
+}
+
+// PasswordHash returns the stored bcrypt hash, for the change-password check.
+// Separate from CredentialsByEmail because that lookup is by address and this
+// caller already holds an authenticated account id.
+func (s *Store) PasswordHash(ctx context.Context, accountID int64) (string, error) {
+	var hash string
+	err := s.pool.QueryRow(ctx,
+		`SELECT password_hash FROM accounts WHERE id = $1`, accountID).Scan(&hash)
+	if err != nil {
+		return "", fmt.Errorf("store: password hash %d: %w", accountID, err)
+	}
+	return hash, nil
+}
+
+// UpdatePassword swaps the hash, guarded by the old one.
+//
+// The guard mirrors the reference's UPDATE ... WHERE password_hash = :current:
+// the caller has already bcrypt-verified the current password, and the WHERE
+// clause keeps a concurrent change from being silently overwritten between
+// that check and this write. false means the guard failed, not an error.
+func (s *Store) UpdatePassword(ctx context.Context, accountID int64, newHash, oldHash string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE accounts SET password_hash = $2
+		WHERE id = $1 AND password_hash = $3`,
+		accountID, newHash, oldHash)
+	if err != nil {
+		return false, fmt.Errorf("store: update password: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// DisableToken expires the presented token immediately.
+//
+// An UPDATE of expires_at rather than a DELETE, matching the reference's
+// disable (expires_in=0): the row remains as a record of the session, and
+// AccountByToken already refuses anything past its expiry. Only the exact
+// token is disabled; the reference leaves the account's other sessions alone.
+func (s *Store) DisableToken(ctx context.Context, appID int64, token string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE oauth_tokens SET expires_at = now()
+		WHERE access_token = $1 AND app_id = $2`, token, appID)
+	if err != nil {
+		return fmt.Errorf("store: disable token: %w", err)
 	}
 	return nil
 }

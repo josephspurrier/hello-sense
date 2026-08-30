@@ -247,6 +247,25 @@ mechanism here; three have already been wrong this project.
 The device is safe on 4530 (a working v3 image) throughout. Nothing here can
 brick it: a failed OTA always falls back to the running image.
 
+## Update: two clean single-shot flashes (2026-08-30 ~20:40 EDT)
+
+After the 4531 0/14 run, reproduced the last known-good image (4530: v3
+write-fix, hostname clock, NO commit guard, 147,416 bytes) as 4532 and 4533,
+each a version-only bump, and flashed them with a GENTLE single-shot arm (arm
+once, wait ~10 min, no rapid re-arming). Both installed on the FIRST attempt
+(~90s each). So the flash pipeline is reliable, and the 0/14 was specific to the
+4531 run, not an environmental block.
+
+Two variables changed between 4531 (failed) and 4532/4533 (worked), so this does
+not fully isolate the cause: 4531 carried the commit guard (+~300 bytes) AND was
+flashed with a rapid loop (re-arm every 3 min) that may have degraded the
+fail-safe/slot state. 4532/4533 removed the guard AND used gentle pacing. To
+isolate: flash a guard-carrying image single-shot; if it lands, the hammering
+was the culprit. Operationally: prefer the single-shot arm (~/flash-once.sh on
+the VM) over the hammering loop.
+
+Tally: installs 4526, 4528, 4529, 4530, 4532, 4533; the lone failure is 4531.
+
 ## Practical consequences
 
 - **A failed update costs a reboot and nothing else.** The device always comes
