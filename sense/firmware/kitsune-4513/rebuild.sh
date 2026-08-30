@@ -34,6 +34,7 @@ CUSTOM=""
 if [ "$KIT_VER" != "4513" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_OTA_FLUSH_FIX:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_DEV_DOMAIN:-}" ] && [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then
   echo "set one of KITSUNE_DEV_DOMAIN or KITSUNE_PROD_DOMAIN, not both" >&2; exit 1
 fi
@@ -117,7 +118,7 @@ if [ -n "${KITSUNE_DEV_DOMAIN:-}${KITSUNE_PROD_DOMAIN:-}" ]; then
   fi
   echo ">> rewriting $SLOT endpoints to *.$DOMAIN_VALUE"
   command -v python3 >/dev/null || { echo "python3 required for KITSUNE_DEV_DOMAIN"; exit 1; }
-  DOMAIN="$DOMAIN_VALUE" SLOT="$SLOT" TIME_HOST_OVERRIDE="${KITSUNE_TIME_HOST:-}" python3 - "$WORK/src" <<'REWRITE'
+  DOMAIN="$DOMAIN_VALUE" SLOT="$SLOT" TIME_HOST_OVERRIDE="${KITSUNE_TIME_HOST:-}" OTA_FLUSH_FIX="${KITSUNE_OTA_FLUSH_FIX:-}" python3 - "$WORK/src" <<'REWRITE'
 import os, re, sys
 root, domain = sys.argv[1], os.environ["DOMAIN"]
 slot = os.environ.get("SLOT", "DEV")
@@ -176,6 +177,49 @@ if slot == "PROD":
     s = s.replace(old, '#define TIME_HOST "%s"' % host)
     open(st, "w").write(s)
     print("   PROD endpoints rewritten; TIME_HOST -> %s" % host)
+
+# KITSUNE_OTA_FLUSH_FIX: give the boot record time to reach flash before the
+# device is power-cycled.
+#
+# THE BUG. _WriteBootInfo() starts by DELETING /sys/mcubootinfo.bin, then
+# recreates it with _FS_FILE_OPEN_FLAG_COMMIT, writes and closes. Its callers
+# then call mcu_reset(), which is not a soft reset: it sends "bounce" to the top
+# board, which cuts power within about a second. sl_Stop() is never called, so
+# the NWP that owns the serial flash is never shut down cleanly. The authors knew
+# something was wrong here and left "//TODO make flush work on reset..." in
+# mcu_reset().
+#
+# Per TI, a file opened with the commit flag "will not be considered valid until
+# the close operation succeeds", and if it does not, the device keeps the
+# PREVIOUS version. So when the power cut wins the race, the boot record silently
+# reverts, the bootloader never sees IMG_STATUS_TESTREADY, and it boots the image
+# it already had. The downloaded image is fine and verified; only the flag that
+# would have made the bootloader try it is lost.
+#
+# Measured 2026-08-29 before this fix: 4 installs out of 14 attempts. Builds
+# 4520 and 4521, identical to the running 4519 except eight bytes of version
+# constant, both failed, which is what ruled out image size and content.
+#
+# The fix is a delay, not sl_Stop(). sl_Stop() is what TI actually recommends,
+# but mcu_reset() then calls uart_logger_flush_err_shutdown(), and stopping the
+# NWP underneath the logger is a new failure mode that cannot be tested from
+# here. A delay addresses the race directly and adds no new API calls.
+# vTaskDelay is in milliseconds: configTICK_RATE_HZ is 1000.
+if os.environ.get("OTA_FLUSH_FIX"):
+    ff = os.path.join(root, "kitsune", "fatfs_cmd.c")
+    s2 = open(ff).read()
+    pat = re.compile(r"(_WriteBootInfo\(&sBootInfo\);\n)((?:[^\n]*//[^\n]*\n)?)([ \t]*)mcu_reset\(\);")
+    def rep(m):
+        ind = m.group(3)
+        return (m.group(1) + m.group(2)
+                + ind + "/* Let the boot record reach flash before the top board cuts power.\n"
+                + ind + "   Without this the commit races the reset and the record reverts. */\n"
+                + ind + "vTaskDelay(3000);\n"
+                + ind + "mcu_reset();")
+    s2, n = pat.subn(rep, s2)
+    assert n == 3, "fatfs_cmd.c: expected 3 boot-record resets, patched %d" % n
+    open(ff, "w").write(s2)
+    print("   OTA flush fix applied at %d reset sites" % n)
 else:
     # In DEV mode the new domain is what `dev 1` selects, and making the clock
     # follow would need the function above. Left alone deliberately.

@@ -38,9 +38,26 @@ cd "$(dirname "$0")/.."
 DEVICE="${1:?usage: arm-firmware.sh <device-id> <image.bin> <to-version> [host]}"
 IMAGE="${2:?missing image path}"
 TO_VER="${3:?missing target version, e.g. 4514}"
-HOST="${4:-sense-in.hello.is}"
+HOST="${4:-${OTA_HOST:-sense-in.hello.is}}"
 
 [ -f "$IMAGE" ] || { echo "no such image: $IMAGE" >&2; exit 1; }
+
+# The device resolves this host ITSELF, with whatever resolver its network gives
+# it. If it cannot, gethostbyname() fails inside download_file(), the update is
+# abandoned before a single byte is fetched, and the only trace is the device
+# logging "MCU image name converted to ..." and then nothing. The server sees an
+# offer and no download, which looks exactly like a failed install.
+#
+# That cost 28 wasted attempts on 2026-08-29: the default was a hello.is name
+# that the firmware no longer uses and the device's new network could not
+# resolve. Check it here rather than infer it from silence.
+if ! getent hosts "$HOST" >/dev/null 2>&1 && ! host "$HOST" >/dev/null 2>&1; then
+  echo "REFUSING: '$HOST' does not resolve." >&2
+  echo "  The device fetches the image from this name using its own resolver," >&2
+  echo "  so it must resolve on the device's network, not just here." >&2
+  echo "  Pass one as the 4th argument, or set OTA_HOST." >&2
+  exit 1
+fi
 
 NAME="$(basename "$IMAGE")"
 case "$NAME" in
