@@ -93,6 +93,12 @@ func (h *Handler) routes() {
 	h.mux.Handle("POST /v2/alarms/{ts}", h.auth(h.postAlarms))
 	h.mux.Handle("GET /v2/alerts", h.auth(h.getAlerts))
 	h.mux.Handle("GET /v2/account/preferences", h.auth(h.getPreferences))
+	h.mux.Handle("PUT /v2/account/preferences", h.auth(h.putPreferences))
+	h.mux.Handle("POST /v1/photo/profile", h.auth(h.postProfilePhoto))
+	h.mux.Handle("DELETE /v1/photo/profile", h.auth(h.deleteProfilePhoto))
+	// The image bytes. Unauthenticated: a plain image fetch with a random
+	// token as the path, the same scheme as the share pages (see photo.go).
+	h.mux.HandleFunc("GET "+photoPath+"{token}", h.getProfilePhotoImage)
 	h.mux.Handle("GET /v2/sleep_sounds/status", h.auth(h.getSleepSoundsStatus))
 	h.mux.Handle("GET /v2/sleep_sounds/combined_state", h.auth(h.getCombinedSleepSoundState))
 	h.mux.Handle("GET /v2/alarms/sounds", h.auth(h.getAlarmSounds))

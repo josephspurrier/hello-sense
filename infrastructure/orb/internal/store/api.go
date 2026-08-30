@@ -358,6 +358,83 @@ func (s *Store) PreferencesFor(ctx context.Context, accountID int64) (map[string
 	return out, rows.Err()
 }
 
+// PutPreferences upserts the given preference toggles.
+//
+// Only the keys present are written, matching the reference's putAll: the app
+// sends every toggle it knows on each save, but a missing key must not reset
+// anything another client set.
+func (s *Store) PutPreferences(ctx context.Context, accountID int64, prefs map[string]bool) error {
+	for name, enabled := range prefs {
+		_, err := s.pool.Exec(ctx, `
+			INSERT INTO preferences (account_id, name, enabled)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (account_id, name)
+			DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()`,
+			accountID, name, enabled)
+		if err != nil {
+			return fmt.Errorf("store: put preference %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// PutProfilePhoto stores the account's photo, replacing any existing one.
+// The caller mints the token; a replaced photo gets a fresh one so stale URLs
+// die with the old image.
+func (s *Store) PutProfilePhoto(ctx context.Context, accountID int64, token, contentType string, data []byte) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO profile_photos (account_id, token, content_type, data)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (account_id)
+		DO UPDATE SET token = EXCLUDED.token, content_type = EXCLUDED.content_type,
+		              data = EXCLUDED.data, created_at = now()`,
+		accountID, token, contentType, data)
+	if err != nil {
+		return fmt.Errorf("store: put profile photo: %w", err)
+	}
+	return nil
+}
+
+// ProfilePhotoToken returns the account's current photo token, for building
+// the URL the account render carries. ok=false means no photo.
+func (s *Store) ProfilePhotoToken(ctx context.Context, accountID int64) (string, bool, error) {
+	var token string
+	err := s.pool.QueryRow(ctx,
+		`SELECT token FROM profile_photos WHERE account_id = $1`, accountID).Scan(&token)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("store: profile photo token: %w", err)
+	}
+	return token, true, nil
+}
+
+// ProfilePhotoByToken returns the image for the unauthenticated serving path.
+func (s *Store) ProfilePhotoByToken(ctx context.Context, token string) (contentType string, data []byte, found bool, err error) {
+	err = s.pool.QueryRow(ctx,
+		`SELECT content_type, data FROM profile_photos WHERE token = $1`, token).
+		Scan(&contentType, &data)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil, false, nil
+	}
+	if err != nil {
+		return "", nil, false, fmt.Errorf("store: profile photo by token: %w", err)
+	}
+	return contentType, data, true, nil
+}
+
+// DeleteProfilePhoto removes the account's photo. Deleting a photo that does
+// not exist is not an error, matching the reference's unconditional delete.
+func (s *Store) DeleteProfilePhoto(ctx context.Context, accountID int64) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM profile_photos WHERE account_id = $1`, accountID)
+	if err != nil {
+		return fmt.Errorf("store: delete profile photo: %w", err)
+	}
+	return nil
+}
+
 // AlarmsFor returns the account's alarm definitions, newest first.
 func (s *Store) AlarmsFor(ctx context.Context, accountID int64) ([][]byte, error) {
 	rows, err := s.pool.Query(ctx, `

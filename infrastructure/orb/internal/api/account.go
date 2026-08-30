@@ -44,9 +44,9 @@ type Account struct {
 	Weight        *int32  `json:"weight"` // grams
 	Created       int64   `json:"created"`
 	LastModified  int64   `json:"last_modified"`
-	DOB           *string `json:"dob"`
-	EmailVerified bool    `json:"email_verified"`
-	ProfilePhoto  *string `json:"profile_photo"`
+	DOB           *string      `json:"dob"`
+	EmailVerified bool         `json:"email_verified"`
+	ProfilePhoto  *RemoteImage `json:"profile_photo"`
 }
 
 func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +63,23 @@ func (h *Handler) getAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, renderAccount(a))
+	out := renderAccount(a)
+	// The photo rides along only when asked for, matching the reference's
+	// ?photo=true and its maybeAddProfilePhoto.
+	if r.URL.Query().Get("photo") == "true" {
+		token, found, err := h.store.ProfilePhotoToken(r.Context(), accountID)
+		if err != nil {
+			h.log.Error("account photo", "account", accountID, "err", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if found {
+			img := remoteImageFor(r, token)
+			out.ProfilePhoto = &img
+		}
+	}
+
+	writeJSON(w, http.StatusOK, out)
 }
 
 // renderAccount is shared by the read and the write, so an edited profile comes
