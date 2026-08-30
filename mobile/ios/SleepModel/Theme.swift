@@ -418,9 +418,20 @@ fileprivate extension Theme {
         // theme file is loaded for night; day uses the defaults alone.
         let style: UIUserInterfaceStyle = self.themeProperties != nil ? .dark : .light
 
+        // Only the app's own window gets painted and reordered. The windows
+        // list also contains system windows, notably UITextEffectsWindow,
+        // which hosts the keyboard ABOVE our window and is normally
+        // transparent. Painting it left an opaque full-screen sheet behind
+        // once the keyboard went away: sign out after typing showed all
+        // white, sign in showed all black (night theme), and a fresh launch
+        // was always fine because that window is created lazily by the first
+        // keyboard. The style override stays global: it is not painted
+        // content, and the keyboard should follow the theme.
+        let appWindow = UIApplication.shared.delegate?.window ?? nil
         let windows = UIApplication.shared.windows
         windows.forEach { (window: UIWindow) in
             window.overrideUserInterfaceStyle = style
+            guard window == appWindow else { return }
             if let windowBackground = windowBackground {
                 window.backgroundColor = windowBackground
             }
