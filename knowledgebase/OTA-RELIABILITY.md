@@ -161,24 +161,92 @@ The generational trap applies to every version of this fix: the arm path that
 matters is the one in the RUNNING image, so a fix only takes effect one flash
 AFTER it lands, and landing it uses the broken path (retry until lucky).
 
-## Outcome (2026-08-30, ~02:40-02:55 EDT)
+## Outcome (2026-08-30)
 
-v3 works. Builds 4529 and 4530, both armed and flashed through a v3 image,
-installed on the FIRST attempt, in 80 and 41 seconds respectively, with every
-logged return clean: `WriteBootInfo ... w 88 c 0`, read-back confirming
-TESTREADY on the record before the reset, `slstop rv 0`, and no
-"error opening file, trying to create" (the no-delete path in use). Counting
-4526 and 4528, the night ended with four consecutive one-shot installs against
-a historical baseline of about one in five.
+v3 is a real improvement but is NOT reliable, and the earlier claim here that
+it "works" was premature. Two windows tell the story:
 
-Because v3 changed two things at once (no-delete AND kept sl_Stop), and no v3
-attempt has ever failed, the close-failure theory was never observed directly;
-it remains the best explanation of the old behavior rather than a proven one.
-If an OTA ever fails again, the w/c/slstop numbers in the device log are the
-first thing to read.
+- ~02:40-02:55 EDT: builds 4526, 4528, 4529, 4530 all installed on the FIRST
+  attempt, four in a row against a ~1-in-5 baseline. That looked solved.
+- ~15:20-20:05 EDT: build 4531 (4530 arming it, a v3 image) failed **14 of 14**
+  attempts and never once entered testing mode. A user power cycle mid-run
+  changed nothing.
 
-The four hostname-clock builds (4527-4530) also settle the old red herring for
-good: 4528-4530 run `time.orb.example.com` and sync time fine.
+The 4531 failures are the decisive data. Every attempt logged a CLEAN write:
+`WriteBootInfo ... w 88 c 0` (close returned 0), the read-back confirmed
+TESTREADY was on the record (`armchk rd 0 st 56788765`), and `slstop rv 0`
+reported a clean NWP shutdown. Then the reset reverted the record anyway and
+the bootloader booted the old image. So **a clean `sl_FsClose` AND a clean
+`sl_Stop` still do not guarantee the fail-safe record commits to physical
+flash before the power cut.** The close-failure theory is therefore also
+incomplete: here the close did not fail and the record was lost regardless.
+
+That it went 0-of-14 deterministically (not intermittently) suggests a
+state, not a race: most likely the specific fail-safe mirror or the target
+slot (every 4531 attempt targeted mcuimg3 / USER2 with ucActiveImg=1) is in a
+degraded state after a night of dozens of boot-record writes. 4529/4530 may
+have landed only because they happened to target the other slot. Unproven.
+
+What is proven: the failure is NOT caused by the patch-file conversion (4531
+is byte-identical to its Python build) nor by the commit-guard fix (which never
+runs, because 4531 never boots). The device is safe on 4530 throughout.
+
+The `-debug` /logs channel ALREADY answers the last question, no UART needed
+(an earlier draft of this section wrongly reached for UART). The two hypotheses
+leave different app-side fingerprints, and the logs show one of them cleanly.
+Per attempt:
+
+    WriteBootInfo: ucActiveImg=1, ulImgStatus=0x56788765 w 88 c 0   (TESTREADY, close=0)
+    armchk rd 0 st 56788765 img 1                                   (read-back sees TESTREADY)
+    ...reset...
+    Start polling                                                   (rebooted)
+    ReadBootInfo: ucActiveImg=1, ulImgStatus=0xabcddcba             (NOTEST)
+
+`ucActiveImg` never moves and "Booted in testing mode" never appears, so the
+bootloader booted normally: it read NOTEST. That is the REVERT case, not the
+torn-image case (which would show a testing boot). Confirmed 14/14. So the
+record is confirmed-written and confirmed-read-back as TESTREADY, close returns
+0, sl_Stop returns 0, and it STILL reverts across the power cut. `close == 0`
+is a false success signal for the fail-safe commit.
+
+## Leading suspect, and why it is not conclusive
+
+`_WriteBootInfo` opens the record like this (the patch removed the `sl_FsDel`
+above it but left this untouched):
+
+    if (sl_FsOpen(IMG_BOOT_INFO, FS_MODE_OPEN_WRITE, ...))     // open existing, NO commit flag
+        ... sl_FsOpen(IMG_BOOT_INFO, FS_MODE_OPEN_CREATE(256, _FS_FILE_OPEN_FLAG_COMMIT|...))  // WITH commit flag
+
+Originally the `sl_FsDel` deleted the file first, so the open-existing always
+FAILED and the create-WITH-commit path always ran. Removing the delete means
+the file persists, the open-existing SUCCEEDS, and the write goes through
+`FS_MODE_OPEN_WRITE` with no commit flag. That is a plausible reason a close
+returns 0 while the fail-safe mirror never swaps.
+
+The hole in that theory: if the missing commit flag categorically broke the
+commit, v3 would be 0-for-everything, and it went 4-for-4 first (4526, 4528,
+4529, 4530). So the flag is not a clean on/off switch. The deterministic 0/14
+came only after hours of writes to the same fail-safe file, which points more
+at a degraded mirror state (or the specific mcuimg3/USER2 slot every 4531
+attempt targeted) than at the open flag alone. Do not assert a single
+mechanism here; three have already been wrong this project.
+
+## How to continue (in order)
+
+1. Let the device rest and arm ONE 4531 attempt in a clean window (no retry
+   loop). Every success came early in a fresh window; the 0/14 came after
+   hammering. This may just be transient fail-safe/slot state that settles,
+   and it costs one reboot to find out.
+2. If that fails, build a variant that FORCES the commit path (open the
+   existing record with `_FS_FILE_OPEN_FLAG_COMMIT`, or create-with-commit
+   without the delete) and land one to compare head-to-head. This needs one
+   successful flash to break the chicken-and-egg, so do it after 1.
+3. Only if both stall: reset the boot record / reprovision to clear a degraded
+   mirror or corrupted slot. Needs care and probably UART or a console command.
+
+The device is safe on 4530 (a working v3 image) throughout. Nothing here can
+brick it: a failed OTA always falls back to the running image.
+
 ## Practical consequences
 
 - **A failed update costs a reboot and nothing else.** The device always comes
