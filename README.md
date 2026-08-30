@@ -49,6 +49,7 @@ services/         the device-facing TLS terminator and DNS redirect (Python)
 mobile/ios/       the iOS app
 sense/            the Sense hub: hardware, self-hosting, firmware
 pill/             the Sleep Pill: hardware, recovery, firmware
+knowledgebase/    deeper background, reverse-engineering notes, and working plans
 ```
 
 ## Start here
@@ -88,6 +89,29 @@ pill/             the Sleep Pill: hardware, recovery, firmware
 | [Pill Hardware](pill/HARDWARE.md)                   | The two incompatible variants, debug header pinouts, GPIO mapping, and why pairing is ANT rather than BLE |
 | [Pill Recovery](pill/PILL_RECOVERY.md)              | Recovering a bricked pill over SWD, identifying the variant, J-Link flashing, AES key extraction          |
 | [Pill Firmware](pill/firmware/pill-1.0.3/README.md) | v1 firmware at tag 1.0.3 with a working ANT radio, and why 1.2.1 does not pair                            |
+
+### Knowledge base
+
+Longer-form background behind the guides above: how the protocols were reverse
+engineered, why particular decisions were made, and the plans the revival
+followed. Read these when a guide tells you *what* to do and you want to know
+*why*. They live in [knowledgebase/](knowledgebase/).
+
+| Document                                                          | What it covers                                                                                   |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [Going public](knowledgebase/GOING-PUBLIC.md)                    | Dropping the suripu backend, moving to a cloud VM, and reaching the Sense without a DNS redirect  |
+| [State](knowledgebase/STATE.md)                                  | Where the project stands and what is left to do                                                  |
+| [Consolidation plan](knowledgebase/CONSOLIDATION-PLAN.md)        | The full plan and evidence for collapsing 16 containers to 3 and porting the services to Go       |
+| [Running orb](knowledgebase/RUNNING-ORB.md)                      | Operating the Go backend, including Apple push-notification setup                                 |
+| [Device protocol](knowledgebase/DEVICE-PROTOCOL.md)              | The Sense wire protocol: framing, signing, and endpoints                                          |
+| [OTA reliability](knowledgebase/OTA-RELIABILITY.md)              | Why over-the-air firmware updates kept failing, and the fix                                       |
+| [Custom firmware](knowledgebase/CUSTOM-FIRMWARE.md)              | What the CC3200 firmware can be made to do, and the order to attempt changes                       |
+| [Timeline algorithms](knowledgebase/TIMELINE-ALGORITHMS.md)      | How sleep timelines are scored, and the feature flags that hide them                              |
+| [Sleep Pill reference](knowledgebase/SLEEP-PILL.md)              | Deep hardware and flashing reference for the pill, including its on-die keys                       |
+| [LocalStack Kinesis](knowledgebase/LOCALSTACK-KINESIS.md)        | Quirks of the legacy Kinesis emulation, and its self-inflicted failure modes                       |
+| [Flash notes](knowledgebase/FLASH.md)                            | Identifying a pill board variant before flashing it                                               |
+| [Versions](knowledgebase/VERSIONS.md)                            | Label and hardware reference for a specific unit                                                  |
+| [Wiring](knowledgebase/WIRING.md)                                | J-Link SWD debugger wiring reference                                                              |
 
 ## Which Sense, which firmware
 
