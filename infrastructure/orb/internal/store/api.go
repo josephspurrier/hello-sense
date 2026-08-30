@@ -409,6 +409,23 @@ func (s *Store) NotificationSettings(ctx context.Context, accountID int64) (map[
 	return out, rows.Err()
 }
 
+// NotificationEnabled reports whether the account has the given notification
+// type switched on. No row means enabled, the same default the API serves,
+// so the two can never disagree about an account that has saved nothing.
+func (s *Store) NotificationEnabled(ctx context.Context, accountID int64, ntype string) (bool, error) {
+	var enabled bool
+	err := s.pool.QueryRow(ctx, `
+		SELECT enabled FROM notification_settings
+		WHERE account_id = $1 AND type = $2`, accountID, ntype).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: notification enabled: %w", err)
+	}
+	return enabled, nil
+}
+
 // PutNotificationSettings upserts the toggles the app sent.
 func (s *Store) PutNotificationSettings(ctx context.Context, accountID int64, settings []NotificationSettingRow) error {
 	for _, r := range settings {

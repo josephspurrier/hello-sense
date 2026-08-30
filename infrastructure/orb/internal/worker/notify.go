@@ -18,6 +18,15 @@ const (
 	kindPillBattery = "pill_battery"
 )
 
+// settingForKind maps a notification kind onto the toggle in the app's
+// Notifications screen that governs it. Sleep score has its own switch; the
+// battery warning falls under System Alerts, there being no pill-specific
+// toggle on that screen.
+var settingForKind = map[string]string{
+	kindSleepScore:  "SLEEP_SCORE",
+	kindPillBattery: "SYSTEM",
+}
+
 // scoreWindow bounds how old a night may be and still be announced.
 //
 // Without it, the first run against a database of history would send one
@@ -94,6 +103,21 @@ func (w *Worker) notifyPillBattery(ctx context.Context) error {
 // Errors are logged rather than returned, so one account's dead token cannot
 // stop another account's notification.
 func (w *Worker) deliver(ctx context.Context, accountID int64, kind, key string, alert push.Alert) {
+	// The app's Notifications screen toggle for this kind. Checked BEFORE the
+	// claim on purpose: a notification suppressed while the toggle is off
+	// stays claimable, so flipping it back on within the window still
+	// delivers rather than finding the claim already burned.
+	if setting, gated := settingForKind[kind]; gated {
+		on, err := w.store.NotificationEnabled(ctx, accountID, setting)
+		if err != nil {
+			w.log.Error("notification setting", "kind", kind, "account", accountID, "err", err)
+			return
+		}
+		if !on {
+			return
+		}
+	}
+
 	claimed, err := w.store.ClaimPush(ctx, accountID, kind, key)
 	if err != nil {
 		w.log.Error("push claim failed", "kind", kind, "account", accountID, "err", err)
