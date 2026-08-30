@@ -52,6 +52,8 @@ func main() {
 			"directory of OTA images to serve at /firmware/{name}; empty disables it")
 		otaWindow = flag.String("ota-window", envOr("ORB_OTA_WINDOW", "2-5"),
 			"hours in the device's local time when an update may be offered, as START-END")
+		otaMinUptime = flag.Duration("ota-min-uptime", durationOr("ORB_OTA_MIN_UPTIME", ota.MinUptime),
+			"how long a device must have been running before an update is offered")
 		debug = flag.Bool("debug", false, "debug logging")
 
 		// Apple push. All four are required together; with any missing, push is
@@ -93,12 +95,17 @@ func main() {
 	if w, err := parseOTAWindow(*otaWindow); err != nil {
 		log.Error("bad -ota-window, keeping the default", "value", *otaWindow, "err", err)
 	} else {
-		h.OTAWindow = w
-		if w != ota.DefaultWindow {
-			// Worth shouting about. The default exists so an update cannot start
-			// while the owner is asleep, and this is somebody's alarm clock.
-			log.Warn("OTA window widened from the default", "start", w.StartHour, "end", w.EndHour)
-		}
+		h.OTAPolicy.Window = w
+	}
+	h.OTAPolicy.MinUptime = *otaMinUptime
+	if h.OTAPolicy != ota.DefaultPolicy {
+		// Worth shouting about on every start. These gates exist so an update
+		// cannot begin while the owner is asleep, and cannot be handed to a
+		// device that may be rebooting in a loop.
+		log.Warn("OTA policy loosened from the defaults",
+			"window_start", h.OTAPolicy.Window.StartHour,
+			"window_end", h.OTAPolicy.Window.EndHour,
+			"min_uptime", h.OTAPolicy.MinUptime)
 	}
 
 	// The scorer is built here rather than inside the worker, because the app
@@ -234,4 +241,18 @@ func parseOTAWindow(v string) (ota.Window, error) {
 		return ota.Window{}, fmt.Errorf("hours must be 0-23, got %d-%d", start, end)
 	}
 	return ota.Window{StartHour: start, EndHour: end}, nil
+}
+
+// durationOr reads a duration from the environment, falling back on the default
+// when unset or unparseable.
+func durationOr(key string, def time.Duration) time.Duration {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
 }

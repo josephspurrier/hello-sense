@@ -59,6 +59,22 @@ var DefaultWindow = Window{StartHour: 2, EndHour: 5}
 // reference calls this deviceUptimeDelay.
 const MinUptime = 20 * time.Minute
 
+// Policy is the pair of gates that depend on how the device is behaving rather
+// than on what the update is: when it may be offered, and how settled the device
+// must be first.
+//
+// Grouped and configurable so a test loop can shorten the uptime gate without
+// touching the shipped default. Waiting 20 minutes between attempts makes
+// iterating on a firmware change painful enough that the temptation is to edit
+// the constant, and an edited constant is one nobody puts back.
+type Policy struct {
+	Window    Window
+	MinUptime time.Duration
+}
+
+// DefaultPolicy is what a deployment gets unless it says otherwise.
+var DefaultPolicy = Policy{Window: DefaultWindow, MinUptime: MinUptime}
+
 // sha1Length guards against a truncated or absent digest reaching the device.
 const sha1Length = 20
 
@@ -76,7 +92,7 @@ type Decision struct {
 // report one, which is treated as unknown and therefore refused. localNow is
 // the device's local time, because the window is a statement about the
 // sleeper's night rather than about UTC.
-func Decide(u *Update, currentVersion int32, uptime time.Duration, localNow time.Time, w Window) Decision {
+func Decide(u *Update, currentVersion int32, uptime time.Duration, localNow time.Time, p Policy) Decision {
 	if u == nil {
 		return Decision{false, "no update prepared"}
 	}
@@ -108,10 +124,10 @@ func Decide(u *Update, currentVersion int32, uptime time.Duration, localNow time
 	if uptime < 0 {
 		return Decision{false, "device did not report uptime"}
 	}
-	if uptime < MinUptime {
+	if uptime < p.MinUptime {
 		return Decision{false, "device has not been up long enough"}
 	}
-	if !w.contains(localNow) {
+	if !p.Window.contains(localNow) {
 		return Decision{false, "outside the update window"}
 	}
 	return Decision{true, "armed, matched and inside the window"}

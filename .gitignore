@@ -13,7 +13,15 @@ sense_data.jsonl
 sense_fs_backup/
 .DS_Store
 
-# A firmware built with KITSUNE_DEV_DOMAIN carries your own hostnames. It is a
-# build artifact, not a reference, and the reference (out/kitsune.bin) is
-# committed alongside it.
-sense/firmware/kitsune-4513/out/kitsune-custom-*
+# Firmware build artifacts.
+#
+# Allowlist, not blocklist. This was "kitsune-custom-*" and a padded image built
+# for one experiment was named differently, so it sailed straight past and sat
+# there untracked-but-visible. Ignore the whole output directory and name the two
+# files that are meant to be committed.
+#
+# It matters twice over: a customised build carries YOUR hostnames, and every one
+# of these is Hello's firmware code (see NOTICE).
+sense/firmware/kitsune-4513/out/*
+!sense/firmware/kitsune-4513/out/kitsune.bin
+!sense/firmware/kitsune-4513/out/kitsune.out

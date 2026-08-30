@@ -99,6 +99,12 @@ services:
       # Empty means the /firmware/ route 404s. Set to /firmware only while an
       # update is actually being delivered, and clear it afterwards.
       ORB_FIRMWARE_DIR: ${ORB_FIRMWARE_DIR:-}
+      # The two OTA gates. Defaults are 2-5 local and 20m, and both exist for a
+      # reason: no update while the owner is asleep, and none handed to a device
+      # that may be rebooting in a loop. Loosen them for a supervised test, then
+      # put them back. orb logs a warning on every start while they are loosened.
+      ORB_OTA_WINDOW: ${ORB_OTA_WINDOW:-}
+      ORB_OTA_MIN_UPTIME: ${ORB_OTA_MIN_UPTIME:-}
     # -api-fallback is deliberately absent. It used to forward unimplemented
     # app API paths to suripu-app; orb now answers everything and suripu-app is
     # gone, so a fallback would only mask a missing route.

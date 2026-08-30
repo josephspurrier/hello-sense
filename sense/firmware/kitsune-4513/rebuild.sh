@@ -117,7 +117,7 @@ if [ -n "${KITSUNE_DEV_DOMAIN:-}${KITSUNE_PROD_DOMAIN:-}" ]; then
   fi
   echo ">> rewriting $SLOT endpoints to *.$DOMAIN_VALUE"
   command -v python3 >/dev/null || { echo "python3 required for KITSUNE_DEV_DOMAIN"; exit 1; }
-  DOMAIN="$DOMAIN_VALUE" SLOT="$SLOT" SKIP_TIME_HOST="${KITSUNE_SKIP_TIME_HOST:-}" python3 - "$WORK/src" <<'REWRITE'
+  DOMAIN="$DOMAIN_VALUE" SLOT="$SLOT" TIME_HOST_OVERRIDE="${KITSUNE_TIME_HOST:-}" python3 - "$WORK/src" <<'REWRITE'
 import os, re, sys
 root, domain = sys.argv[1], os.environ["DOMAIN"]
 slot = os.environ.get("SLOT", "DEV")
@@ -166,9 +166,16 @@ old = '#define TIME_HOST "time.hello.is"'
 assert s.count(old) == 1, "sys_time.c: TIME_HOST not found exactly once"
 
 if slot == "PROD":
-    s = s.replace(old, '#define TIME_HOST "time.%s"' % domain)
+    # KITSUNE_TIME_HOST overrides the derived name. Worth having because the
+    # clock is the one endpoint that runs over plain HTTP on port 80, with no
+    # TLS and therefore no certificate to match, so it can be an IP literal.
+    # That matters: "time.orb.example.com" is 14 characters longer than
+    # "time.hello.is" and every extra byte in this image lowers the chance the
+    # OTA takes, while an IP is the same length as what it replaces.
+    host = os.environ.get("TIME_HOST_OVERRIDE") or ("time." + domain)
+    s = s.replace(old, '#define TIME_HOST "%s"' % host)
     open(st, "w").write(s)
-    print("   PROD endpoints rewritten; TIME_HOST -> time.%s" % domain)
+    print("   PROD endpoints rewritten; TIME_HOST -> %s" % host)
 else:
     # In DEV mode the new domain is what `dev 1` selects, and making the clock
     # follow would need the function above. Left alone deliberately.

@@ -64,18 +64,20 @@ type Handler struct {
 	// server that cannot hand out firmware cannot hand out the wrong firmware.
 	FirmwareDir string
 
-	// OTAWindow is when updates may be offered, in the device's local time.
+	// OTAPolicy is when updates may be offered and how long the device must
+	// have been up first.
 	//
-	// Configurable only so that a FIRST, SUPERVISED update can be run at a sane
-	// hour. The 02:00-05:00 default is not arbitrary: this device is somebody's
-	// alarm clock, and an update that starts while they are asleep and does not
-	// finish is a missed morning. Widen it to watch one happen, then put it
-	// back.
-	OTAWindow ota.Window
+	// Configurable only so that a supervised update can be run at a sane hour
+	// and iterated on without a 20 minute wait between attempts. Neither default
+	// is arbitrary: this device is somebody's alarm clock, so an update should
+	// not start while they are asleep, and handing an image to something that
+	// has just rebooted is how a recoverable fault becomes a brick. Loosen them
+	// to watch one happen, then put them back.
+	OTAPolicy ota.Policy
 }
 
 func New(s *store.Store, log *slog.Logger) *Handler {
-	return &Handler{store: s, log: log, OTAWindow: ota.DefaultWindow}
+	return &Handler{store: s, log: log, OTAPolicy: ota.DefaultPolicy}
 }
 
 // Routes dispatches on the Host header, matching how the device addresses three
@@ -1015,7 +1017,7 @@ func (h *Handler) otaFiles(ctx context.Context, deviceID string, firmwareVersion
 		return nil
 	}
 
-	d := ota.Decide(update, firmwareVersion, uptime, time.Now().In(loc), h.OTAWindow)
+	d := ota.Decide(update, firmwareVersion, uptime, time.Now().In(loc), h.OTAPolicy)
 	if !d.Offer {
 		h.log.Info("firmware update not offered", "device", deviceID,
 			"target", update.ToVersion, "reason", d.Reason)
