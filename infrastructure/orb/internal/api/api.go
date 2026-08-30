@@ -146,6 +146,9 @@ func (h *Handler) routes() {
 	// a restore issues a new one.
 	h.mux.Handle("POST /v1/notifications/registration", h.auth(h.postNotificationRegistration))
 	h.mux.Handle("DELETE /v1/notifications/registration", h.auth(h.deleteNotificationRegistration))
+	// The notification settings screen's list and its Save button.
+	h.mux.Handle("GET /v1/notifications", h.auth(h.getNotificationSettings))
+	h.mux.Handle("PUT /v1/notifications", h.auth(h.putNotificationSettings))
 
 	// The corrections. One path, three verbs, three meanings: move the event,
 	// confirm it, reject it.

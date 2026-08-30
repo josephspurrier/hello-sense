@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/josephspurrier/hello-orb/orb/internal/store"
 )
 
 // pushRegistration is the body the app posts to /v1/notifications/registration.
@@ -106,4 +108,118 @@ func (h *Handler) deleteNotificationRegistration(w http.ResponseWriter, r *http.
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+// The notification settings screen: GET/PUT /v1/notifications.
+//
+// The reference is MobilePushRegistrationResource + NotificationSettingsDAO:
+// three fixed types, everything defaults to enabled with no rows stored, and
+// the wire order is SLEEP_SCORE, SYSTEM, SLEEP_REMINDER
+// (NotificationSettingsDynamoDB.ORDERING). The names ride along in the
+// payload; the app renders them verbatim.
+
+type notificationSchedule struct {
+	Hour   int32 `json:"hour"`
+	Minute int32 `json:"minute"`
+}
+
+type notificationSetting struct {
+	Name     string                `json:"name"`
+	Type     string                `json:"type"`
+	Enabled  bool                  `json:"enabled"`
+	Schedule *notificationSchedule `json:"schedule,omitempty"`
+}
+
+// notificationTypes is the full set, in the reference's wire order.
+var notificationTypes = []struct{ t, name string }{
+	{"SLEEP_SCORE", "Sleep Score"},
+	{"SYSTEM", "System Alerts"},
+	{"SLEEP_REMINDER", "Sleep Reminder"},
+}
+
+func notificationName(t string) string {
+	for _, nt := range notificationTypes {
+		if nt.t == t {
+			return nt.name
+		}
+	}
+	return ""
+}
+
+func (h *Handler) getNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := AccountFrom(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	stored, err := h.store.NotificationSettings(r.Context(), accountID)
+	if err != nil {
+		h.log.Error("notification settings", "account", accountID, "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]notificationSetting, 0, len(notificationTypes))
+	for _, nt := range notificationTypes {
+		s := notificationSetting{Name: nt.name, Type: nt.t, Enabled: true}
+		if row, found := stored[nt.t]; found {
+			s.Enabled = row.Enabled
+			if row.Hour != nil && row.Minute != nil {
+				s.Schedule = &notificationSchedule{Hour: *row.Hour, Minute: *row.Minute}
+			}
+		}
+		out = append(out, s)
+	}
+
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (h *Handler) putNotificationSettings(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := AccountFrom(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	var body []struct {
+		Type     string                `json:"type"`
+		Enabled  bool                  `json:"enabled"`
+		Schedule *notificationSchedule `json:"schedule"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{
+			Code: http.StatusBadRequest, Message: "Invalid settings."})
+		return
+	}
+
+	rows := make([]store.NotificationSettingRow, 0, len(body))
+	echo := make([]notificationSetting, 0, len(body))
+	for _, s := range body {
+		// Case-insensitive like the reference's Type.fromString; an unknown
+		// type is a 400 there (the deserializer throws) and here.
+		t := strings.ToUpper(s.Type)
+		if notificationName(t) == "" {
+			writeJSON(w, http.StatusBadRequest, errorBody{
+				Code: http.StatusBadRequest, Message: "invalid notification type"})
+			return
+		}
+		row := store.NotificationSettingRow{Type: t, Enabled: s.Enabled}
+		if s.Schedule != nil {
+			row.Hour, row.Minute = &s.Schedule.Hour, &s.Schedule.Minute
+		}
+		rows = append(rows, row)
+		echo = append(echo, notificationSetting{
+			Name: notificationName(t), Type: t, Enabled: s.Enabled, Schedule: s.Schedule})
+	}
+
+	if err := h.store.PutNotificationSettings(r.Context(), accountID, rows); err != nil {
+		h.log.Error("put notification settings", "account", accountID, "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	// The reference answers with the list it was sent, not a re-read; the
+	// app treats the echo as confirmation.
+	writeJSON(w, http.StatusOK, echo)
 }

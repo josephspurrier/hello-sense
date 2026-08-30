@@ -378,6 +378,57 @@ func (s *Store) PutPreferences(ctx context.Context, accountID int64, prefs map[s
 	return nil
 }
 
+// NotificationSettingRow is one saved notification toggle. Hour and Minute
+// are the optional delivery schedule; both set or both nil.
+type NotificationSettingRow struct {
+	Type    string
+	Enabled bool
+	Hour    *int32
+	Minute  *int32
+}
+
+// NotificationSettings returns the saved toggles keyed by type. Types nobody
+// has saved are absent; the handler owns the defaults, as the reference's
+// DAO did.
+func (s *Store) NotificationSettings(ctx context.Context, accountID int64) (map[string]NotificationSettingRow, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT type, enabled, schedule_hour, schedule_min
+		FROM notification_settings WHERE account_id = $1`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("store: notification settings %d: %w", accountID, err)
+	}
+	defer rows.Close()
+	out := map[string]NotificationSettingRow{}
+	for rows.Next() {
+		var r NotificationSettingRow
+		if err := rows.Scan(&r.Type, &r.Enabled, &r.Hour, &r.Minute); err != nil {
+			return nil, err
+		}
+		out[r.Type] = r
+	}
+	return out, rows.Err()
+}
+
+// PutNotificationSettings upserts the toggles the app sent.
+func (s *Store) PutNotificationSettings(ctx context.Context, accountID int64, settings []NotificationSettingRow) error {
+	for _, r := range settings {
+		_, err := s.pool.Exec(ctx, `
+			INSERT INTO notification_settings
+				(account_id, type, enabled, schedule_hour, schedule_min)
+			VALUES ($1, $2, $3, $4, $5)
+			ON CONFLICT (account_id, type)
+			DO UPDATE SET enabled = EXCLUDED.enabled,
+			              schedule_hour = EXCLUDED.schedule_hour,
+			              schedule_min = EXCLUDED.schedule_min,
+			              updated_at = now()`,
+			accountID, r.Type, r.Enabled, r.Hour, r.Minute)
+		if err != nil {
+			return fmt.Errorf("store: put notification setting %s: %w", r.Type, err)
+		}
+	}
+	return nil
+}
+
 // PutProfilePhoto stores the account's photo, replacing any existing one.
 // The caller mints the token; a replaced photo gets a fresh one so stale URLs
 // die with the old image.
