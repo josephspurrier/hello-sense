@@ -316,6 +316,49 @@ Standings after all controls:
 - Padding a .bin with trailing zeros is a safe, working way to hit a target
   size (the padded 4535 boots and runs normally).
 
+## SOLVED: the root cause was extract_bin.py dropping alignment gaps (2026-08-30 ~22:45 EDT)
+
+`extract_bin.py` (our stand-in for TI's missing tiobj2bin) concatenated the
+four loadable sections naively. Whenever the linker placed a section with a
+4-byte alignment gap after the previous one (which happens or not depending on
+the exact sizes the source produces), the gap was dropped, so every byte after
+it sat 4 bytes below its linked address in the flashed image. Boot-time C
+initialization (`.cinit`) then ran on garbage and the image crashed before
+main(), before any logging. The factory bootloader silently reverted to the
+active image, producing a signature indistinguishable from a boot-record
+failure. SHA verification cannot catch it: the file is self-consistent, just
+wrong. The extractor's own docstring contained the buried assumption:
+"the result is identical because these sections are contiguous ... no gaps."
+
+Proof, in both directions, same source each time:
+- 4537 (gapped, 147,356 B) failed; 4538 (gap zero-filled) installed first try.
+- 4531/4534/4536 (gapped guard/inert, 0-for-18) failed; 4539 (gap-filled
+  guard) installed first try in ~1 minute.
+
+The fix: extract_bin.py now places sections at their address-derived offsets
+and zero-fills gaps, printing "(zero-fill 0x4 gap before .cinit)" when it does.
+Stock 4513 is gap-free, so the byte-exact reference build is unchanged.
+
+What this rewrites about the whole investigation:
+- The overnight "hostname builds never install" correlation was probably REAL:
+  the longer time-host string changed .const's size and created the gap. The
+  correlation was then wrongly discarded because 4522 (contiguous) also failed
+  8 times, but those were the OTHER bug: the genuine boot-record commit race.
+- TWO overlapping bugs took turns generating evidence against each other. The
+  boot-record race was real and the sl_Stop/v3 write fix appears to have fixed
+  it: contiguous v2+/v3 builds are 9 for 9 (4526/28/29/30/32/33/35/38/39).
+- Every "impossible" observation (content-dependent record loss, the size
+  correlation, its refutation by padding) is explained: gapped images crash
+  invisibly and the bootloader's silent revert mimics a record revert; the
+  padded control worked because padding is appended AFTER extraction.
+
+Final state: device on 4539 carrying BOTH firmware fixes (v3 write fix + the
+commit guard, whose first live commit correctly promoted the slot and logged no
+fallback). 4538's durable-write variant also proved out (`armchk2 t0 rd 0`:
+record verified durable against real flash on the first try). Last five
+single-shot flashes with the fixed extractor or contiguous layouts: five
+first-try installs.
+
 ## Practical consequences
 
 - **A failed update costs a reboot and nothing else.** The device always comes
