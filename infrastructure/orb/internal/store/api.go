@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"encoding/json"
@@ -866,6 +868,162 @@ func (s *Store) ActiveSenseID(ctx context.Context, accountID int64) (string, err
 		return "", fmt.Errorf("store: active sense: %w", err)
 	}
 	return id, nil
+}
+
+// PairOutcome says what a pairing attempt did. The three cases map onto the
+// reference's PairState values that reach the device: a fresh link, a
+// harmless retry, or a conflict the device reports as DEVICE_ALREADY_PAIRED.
+type PairOutcome int
+
+const (
+	PairedNew PairOutcome = iota
+	PairedAlready
+	PairConflict
+)
+
+// AccountByWireToken resolves a token exactly as the app sends it on the
+// wire: "{appID}.{32 hex chars}". The pairing protobufs carry the token in
+// this form because the phone hands its own credential to Sense, which
+// forwards it verbatim; the server is the first place it can be decoded.
+func (s *Store) AccountByWireToken(ctx context.Context, wire string) (int64, error) {
+	dot := strings.IndexByte(wire, '.')
+	if dot <= 0 || len(wire)-dot-1 != 32 {
+		return 0, ErrNoToken
+	}
+	appID, err := strconv.ParseInt(wire[:dot], 10, 64)
+	if err != nil {
+		return 0, ErrNoToken
+	}
+	h := strings.ToLower(wire[dot+1:])
+	for i := 0; i < len(h); i++ {
+		if c := h[i]; !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return 0, ErrNoToken
+		}
+	}
+	uuid := h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
+	return s.AccountByToken(ctx, appID, uuid)
+}
+
+// SenseKey returns a Sense's AES key without requiring a pairing, unlike
+// SenseByID, whose join needs an active account. Registration is exactly the
+// moment a pairing may not exist yet.
+func (s *Store) SenseKey(ctx context.Context, deviceID string) ([]byte, bool, error) {
+	var key []byte
+	err := s.pool.QueryRow(ctx,
+		`SELECT aes_key FROM senses WHERE device_id = $1`, deviceID).Scan(&key)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("store: sense key %s: %w", deviceID, err)
+	}
+	return key, true, nil
+}
+
+// PairSense links an account to a Sense.
+//
+// One Sense per account, any number of accounts per Sense: that asymmetry is
+// the partner feature. Pairing the Sense the account already has is a
+// harmless firmware retry; holding a DIFFERENT Sense is the conflict the
+// reference answers with DEVICE_ALREADY_PAIRED.
+func (s *Store) PairSense(ctx context.Context, accountID int64, deviceID string) (PairOutcome, error) {
+	existing, err := s.ActiveSenseID(ctx, accountID)
+	if err != nil {
+		return PairConflict, err
+	}
+	if existing == deviceID {
+		return PairedAlready, nil
+	}
+	if existing != "" {
+		return PairConflict, nil
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO account_senses (account_id, device_id, active)
+		VALUES ($1, $2, true)
+		ON CONFLICT (account_id, device_id)
+		DO UPDATE SET active = true, paired_at = now()`, accountID, deviceID)
+	if err != nil {
+		return PairConflict, fmt.Errorf("store: pair sense: %w", err)
+	}
+	return PairedNew, nil
+}
+
+// PairPill links an account to a pill, following the reference's
+// PillPairStateEvaluator: one pill per account; re-pairing the same pill is a
+// retry; a pill held by exactly one OTHER account moves to this one (the
+// factory-reset-and-resell path, and the reference's deliberate choice); a
+// second pill for an account that has one is refused.
+func (s *Store) PairPill(ctx context.Context, accountID int64, pillID string) (PairOutcome, error) {
+	// One query answers both questions: does this account hold other pills,
+	// and do other accounts hold this pill. A row matching only the account
+	// half is one of my other pills; matching only the pill half is another
+	// account's grip on this one.
+	var otherPillsOfMine, otherHolders int
+	var ownsThisPill bool
+	rows, err := s.pool.Query(ctx, `
+		SELECT account_id, pill_id FROM account_pills
+		WHERE active AND (account_id = $1 OR pill_id = $2)`, accountID, pillID)
+	if err != nil {
+		return PairConflict, fmt.Errorf("store: pair pill lookup: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var acct int64
+		var pid string
+		if err := rows.Scan(&acct, &pid); err != nil {
+			return PairConflict, err
+		}
+		switch {
+		case acct == accountID && pid == pillID:
+			ownsThisPill = true
+		case acct == accountID:
+			otherPillsOfMine++
+		default:
+			otherHolders++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return PairConflict, err
+	}
+
+	if ownsThisPill {
+		return PairedAlready, nil
+	}
+	if otherPillsOfMine > 0 || otherHolders > 1 {
+		return PairConflict, nil
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return PairConflict, fmt.Errorf("store: pair pill begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if otherHolders == 1 {
+		if _, err := tx.Exec(ctx, `
+			UPDATE account_pills SET active = false
+			WHERE pill_id = $1 AND active`, pillID); err != nil {
+			return PairConflict, fmt.Errorf("store: unpair pill: %w", err)
+		}
+	}
+	// The pill may never have been heard from: heartbeats only UPDATE, so the
+	// row that pairing points at has to be made here.
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO pills (pill_id) VALUES ($1)
+		ON CONFLICT (pill_id) DO NOTHING`, pillID); err != nil {
+		return PairConflict, fmt.Errorf("store: insert pill: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO account_pills (account_id, pill_id, active)
+		VALUES ($1, $2, true)
+		ON CONFLICT (account_id, pill_id)
+		DO UPDATE SET active = true, paired_at = now()`, accountID, pillID); err != nil {
+		return PairConflict, fmt.Errorf("store: pair pill: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return PairConflict, fmt.Errorf("store: pair pill commit: %w", err)
+	}
+	return PairedNew, nil
 }
 
 // ErrStaleAccount means the caller's last_modified did not match the row.

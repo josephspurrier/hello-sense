@@ -89,6 +89,12 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /in/sense/state", h.senseState)
 	mux.HandleFunc("POST /in/sense/files", h.senseFiles)
 	mux.HandleFunc("POST /receive", h.receive)
+	// Pairing, during onboarding: the phone drives Sense over BLE and Sense
+	// forwards the pairing command here. /register/morpheus is the deprecated
+	// alias for /register/sense that old firmware still calls.
+	mux.HandleFunc("POST /register/sense", h.registerSense)
+	mux.HandleFunc("POST /register/morpheus", h.registerSense)
+	mux.HandleFunc("POST /register/pill", h.registerPill)
 	// OTA images. Inert unless FirmwareDir is set; see firmware.go.
 	mux.HandleFunc("GET /firmware/{name}", h.firmware)
 	mux.HandleFunc("/", h.byHost)
