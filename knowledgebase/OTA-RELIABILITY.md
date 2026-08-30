@@ -148,8 +148,8 @@ ever change it. `sl_FsClose` is a synchronous command whose return is the
 NWP's own status, so the failure was observable all along and simply thrown
 away.
 
-v3 (current, in `rebuild.sh` under `KITSUNE_OTA_FLUSH_FIX=1`, first in build
-4528):
+v3 (current, shipped as `patches/ota-reliability.patch`, which `rebuild.sh`
+applies with `git apply` when `KITSUNE_OTA_FLUSH_FIX=1`; first in build 4528):
 - removes the `sl_FsDel` so the record is updated in place through the
   fail-safe machinery (Hello's own later master also dropped the delete,
   which reads like their fix for this same bug);

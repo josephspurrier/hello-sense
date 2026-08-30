@@ -1,0 +1,117 @@
+diff --git a/kitsune/fatfs_cmd.c b/kitsune/fatfs_cmd.c
+index 2ad66c37..d7bebf1b 100644
+--- a/kitsune/fatfs_cmd.c
++++ b/kitsune/fatfs_cmd.c
+@@ -1233,7 +1233,9 @@ static _i32 _WriteBootInfo(sBootInfo_t *psBootInfo)
+     unsigned long ulBootInfoCreateFlag;
+ 
+ 
+-    sl_FsDel((unsigned char *)IMG_BOOT_INFO,ulBootInfoToken);
++    /* v3: no delete. The record is a fail-safe file; updating it in
++       place lets the FS keep the previous version until the new one
++       commits. Hello's later master also dropped this delete. */
+     //
+     // Initialize boot info file create flag
+     //
+@@ -1262,11 +1264,11 @@ static _i32 _WriteBootInfo(sBootInfo_t *psBootInfo)
+             sl_FsWrite(hndl, 0, (_u8 *)psBootInfo, sizeof(sBootInfo_t));  // Dummy write, we don't care about the result
+         }
+ 	}
+-	if( 0 < sl_FsWrite(hndl, 0, (_u8 *)psBootInfo, sizeof(sBootInfo_t)) )
+ 	{
+-		LOGI("WriteBootInfo: ucActiveImg=%d, ulImgStatus=0x%x\n\r", psBootInfo->ucActiveImg, psBootInfo->ulImgStatus);
++		_i32 wrv = sl_FsWrite(hndl, 0, (_u8 *)psBootInfo, sizeof(sBootInfo_t));
++		_i32 crv = sl_FsClose(hndl, 0, 0, 0);
++		LOGI("WriteBootInfo: ucActiveImg=%d, ulImgStatus=0x%x w %d c %d\n\r", psBootInfo->ucActiveImg, psBootInfo->ulImgStatus, wrv, crv);
+ 	}
+-	sl_FsClose(hndl, 0, 0, 0);
+     return 0;
+ }
+ 
+@@ -1336,6 +1338,22 @@ bool is_test_boot() {
+ 	return IMG_STATUS_TESTING == sBootInfo.ulImgStatus;
+ }
+ 
++#define APP_IMG_FLASH_OFFSET 0x0100A000
++static bool _running_image_is_new(void) {
++    int newidx = _McuImageGetNewIndex();
++    char name[] = "/sys/mcuimg0.bin";
++    SlFsFileInfo_t info;
++    SHA1_CTX ctx;
++    unsigned char sha[SHA1_SIZE];
++    if (newidx < IMG_ACT_USER1 || newidx >= NUM_IMAGES) return false;
++    name[11] = (char)('1' + newidx); /* mcuimg2 for USER1, mcuimg3 for USER2 */
++    memset(&info, 0, sizeof(info));
++    if (sl_FsGetInfo((unsigned char*)name, 0, &info) != 0 || info.FileLen == 0) return false;
++    SHA1_Init(&ctx);
++    SHA1_Update(&ctx, (unsigned char*)APP_IMG_FLASH_OFFSET, info.FileLen);
++    SHA1_Final(sha, &ctx);
++    return memcmp(sha, sBootInfo.sha[newidx], SHA1_SIZE) == 0;
++}
+ void boot_commit_ota() {
+     _ReadBootInfo(&sBootInfo);
+     /* Check only on status TESTING */
+@@ -1359,11 +1377,26 @@ void boot_commit_ota() {
+             LOGW("TOP checksum error, skipping update\r\n");
+         }
+ 		sBootInfo.ulImgStatus = IMG_STATUS_NOTEST;
+-		sBootInfo.ucActiveImg = (sBootInfo.ucActiveImg == IMG_ACT_USER1)?
++		if( _running_image_is_new() ) {
++			sBootInfo.ucActiveImg = (sBootInfo.ucActiveImg == IMG_ACT_USER1)?
+ 								IMG_ACT_USER2:
+ 								IMG_ACT_USER1;
++		} else {
++			LOGE("OTA fallback: new image did not boot, not promoting slot\r\n");
++		}
+         _WriteBootInfo(&sBootInfo);
+ 		//send_top("rst ", sizeof("rst "));
++		{
++			sBootInfo_t bi_chk;
++			_i32 bi_rv;
++			vTaskDelay(1000);
++			memset(&bi_chk, 0, sizeof(bi_chk));
++			bi_rv = _ReadBootInfo(&bi_chk);
++			LOGI("armchk rd %d st %x img %d\n", bi_rv, bi_chk.ulImgStatus, bi_chk.ucActiveImg);
++			bi_rv = sl_Stop(30000);
++			LOGI("slstop rv %d\n", bi_rv);
++			vTaskDelay(500);
++		}
+ 		mcu_reset();
+ 	}
+ }
+@@ -1373,6 +1406,17 @@ void reset_to_factory_fw() {
+ 	sBootInfo.ulImgStatus = IMG_STATUS_NOTEST;
+ 	sBootInfo.ucActiveImg = IMG_ACT_FACTORY;
+ 	_WriteBootInfo(&sBootInfo);
++	{
++		sBootInfo_t bi_chk;
++		_i32 bi_rv;
++		vTaskDelay(1000);
++		memset(&bi_chk, 0, sizeof(bi_chk));
++		bi_rv = _ReadBootInfo(&bi_chk);
++		LOGI("armchk rd %d st %x img %d\n", bi_rv, bi_chk.ulImgStatus, bi_chk.ucActiveImg);
++		bi_rv = sl_Stop(30000);
++		LOGI("slstop rv %d\n", bi_rv);
++		vTaskDelay(500);
++	}
+ 	mcu_reset();
+ }
+ 
+@@ -1603,6 +1647,17 @@ void file_download_task( void * params ) {
+                     memcpy(sBootInfo.sha[_McuImageGetNewIndex()], download_info.sha1.bytes, SHA1_SIZE );
+                     //sBootInfo.ucActiveImg this is set by boot loader
+                     _WriteBootInfo(&sBootInfo);
++                    {
++                    	sBootInfo_t bi_chk;
++                    	_i32 bi_rv;
++                    	vTaskDelay(1000);
++                    	memset(&bi_chk, 0, sizeof(bi_chk));
++                    	bi_rv = _ReadBootInfo(&bi_chk);
++                    	LOGI("armchk rd %d st %x img %d\n", bi_rv, bi_chk.ulImgStatus, bi_chk.ucActiveImg);
++                    	bi_rv = sl_Stop(30000);
++                    	LOGI("slstop rv %d\n", bi_rv);
++                    	vTaskDelay(500);
++                    }
+                     mcu_reset();
+                 }
+             } else {
