@@ -16,7 +16,15 @@
 static NSString* const HEMHKServiceErrorDomain = @"is.hello.service.hk";
 static NSString* const HEMHKServiceLastDateWritten = @"is.hello.service.hk.lastdate";
 static NSString* const HEMHKServiceEnable = @"is.hello.service.hk.enable";
-static CGFloat const HEMHKServiceBackFillLimit = 3;
+// How many missed nights a routine sync will catch up on. Hello shipped 3,
+// which silently dropped most of a vacation; two weeks covers any realistic
+// stretch of not opening the app without turning a sync into a bulk import.
+static CGFloat const HEMHKServiceBackFillLimit = 14;
+// The one-time history import: how far back, and the per-account marker that
+// says it has been done. The marker is versioned by the count so changing the
+// number re-runs the import.
+static NSInteger const HEMHKServiceHistoryDays = 60;
+static NSString* const HEMHKServiceHistoryImported = @"is.hello.service.hk.history60";
 
 @interface HEMHealthKitService()
 
@@ -172,8 +180,23 @@ static CGFloat const HEMHKServiceBackFillLimit = 3;
     // last time it was sync'ed
     NSDate* lastSyncDate = [self lastSyncDate];
     NSDate* syncFromDate = nil;
-    
-    if (lastSyncDate) {
+
+    SENLocalPreferences* preferences = [SENLocalPreferences sharedPreferences];
+    BOOL importedHistory = [[preferences userPreferenceForKey:HEMHKServiceHistoryImported] boolValue];
+
+    if (!importedHistory) {
+        // One-time history import: the last HEMHKServiceHistoryDays nights,
+        // regardless of what has been synced before. Anything this app wrote
+        // in that window is deleted first, both because some of those nights
+        // may already be there and because nights written before the stage
+        // upgrade are a single Asleep block that would otherwise sit under
+        // the new stage samples and double-count.
+        NSDateComponents* historyComps = [[NSDateComponents alloc] init];
+        [historyComps setDay:-(HEMHKServiceHistoryDays - 1)];
+        syncFromDate = [calendar dateByAddingComponents:historyComps
+                                                 toDate:lastNight
+                                                options:0];
+    } else if (lastSyncDate) {
         NSDateComponents *difference = [calendar components:NSCalendarUnitDay
                                                    fromDate:lastSyncDate
                                                      toDate:lastNight
@@ -198,13 +221,49 @@ static CGFloat const HEMHKServiceBackFillLimit = 3;
     } else { // if never been sync'ed before, just sync last night's data
         syncFromDate = lastNight;
     }
-    
+
     __weak typeof(self) weakSelf = self;
-    [self syncTimelineDataFrom:syncFromDate until:lastNight withCalendar:calendar completion:^(NSArray* timelines, NSError *error) {
-        if (!error) {
-            [weakSelf saveLastSyncDate:lastNight];
-        }
-        completion (error);
+    void (^syncRange)(void) = ^{
+        [weakSelf syncTimelineDataFrom:syncFromDate until:lastNight withCalendar:calendar completion:^(NSArray* timelines, NSError *error) {
+            if (!error) {
+                [weakSelf saveLastSyncDate:lastNight];
+                [preferences setUserPreference:@YES forKey:HEMHKServiceHistoryImported];
+            }
+            completion (error);
+        }];
+    };
+
+    if (!importedHistory) {
+        [self deleteWrittenSleepSamplesFrom:syncFromDate completion:^(NSError* error) {
+            if (error) {
+                // Keep going: a failed cleanup at worst leaves the old
+                // single-block samples alongside the new ones, which is the
+                // exact situation the user is already in.
+                DDLogWarn(@"failed to delete previously written sleep samples: %@", error);
+            }
+            syncRange();
+        }];
+    } else {
+        syncRange();
+    }
+}
+
+// deleteWrittenSleepSamplesFrom removes sleep samples THIS APP wrote from the
+// given date through now, ahead of the history import. deleteObjectsOfType
+// only ever touches the calling app's own samples, so an Apple Watch's or any
+// other app's sleep data cannot be harmed here.
+- (void)deleteWrittenSleepSamplesFrom:(NSDate*)startDate completion:(void(^)(NSError* error))completion {
+    HKCategoryType* hkSleepCategory = [HKObjectType categoryTypeForIdentifier:HKCategoryTypeIdentifierSleepAnalysis];
+    NSPredicate* predicate = [HKQuery predicateForSamplesWithStartDate:startDate
+                                                               endDate:[NSDate date]
+                                                               options:HKQueryOptionNone];
+    [[self hkStore] deleteObjectsOfType:hkSleepCategory
+                              predicate:predicate
+                         withCompletion:^(BOOL success, NSUInteger deletedObjectCount, NSError *error) {
+        DDLogVerbose(@"deleted %ld previously written sleep samples", (long)deletedObjectCount);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion (error);
+        });
     }];
 }
 
