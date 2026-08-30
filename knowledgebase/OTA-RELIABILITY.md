@@ -266,6 +266,56 @@ the VM) over the hammering loop.
 
 Tally: installs 4526, 4528, 4529, 4530, 4532, 4533; the lone failure is 4531.
 
+## Update: guard image fails single-shot, isolating SIZE/layout (2026-08-30 ~21:12 EDT)
+
+Flashed 4534 = guard-carrying (full patch), 147,716 bytes (same as 4531),
+single-shot gentle pacing. It FAILED the same as 4531: clean write `w 88 c 0`,
+armchk TESTREADY, slstop 0, then NOTEST after reboot, ZERO testing boots. The
+no-guard 4532/4533 (147,416 B) landed first-try under identical pacing.
+
+Perfect size correlation: 147,416 installs (4530/4532/4533), 147,716 reverts
+(4531/4534). This EXONERATES the guard logic: `boot_commit_ota` runs only after
+the image boots, and these images never boot (0 testing boots), so the guard
+code never executes. The differentiator is the image itself, ~300 bytes larger
+and relaid-out. Pacing is also exonerated (single-shot failed).
+
+Open question: raw byte count vs the guard build layout. Decisive test: build a
+NO-GUARD image padded to 147,716 and flash single-shot. Fails => raw size
+threshold near 147.5KB; installs => the guard build layout specifically. If it
+is size, the practical fix is to keep images under ~147,416 (shrink the guard,
+or find the boundary).
+
+## Update: padding test kills the SIZE theory (2026-08-30 ~21:36 EDT)
+
+Built no-guard 4535 (147,416 B), padded it with 300 zero bytes to exactly
+147,716 (the failing size), flashed single-shot. It INSTALLED on the first arm.
+Same size as the failing 4531/4534, no guard code -> raw byte size is NOT the
+cause. The earlier "size correlation" was two variables moving together.
+
+Standings after all controls:
+- Pacing: RULED OUT (single-shot 4534 failed; single-shot 4532/4533/4535 passed).
+- Guard runtime logic: RULED OUT (boot_commit_ota runs only post-boot; the
+  failing images never boot, 0 testing boots).
+- Raw image size: RULED OUT (padded 147,716 no-guard installed).
+- Remaining: the guard BUILD specifically. Tally, guard image 0 installs in ~18
+  attempts (4531 14/14 hammered + 4534 ~4 single-shot); no-guard write-fix 7/7
+  first-try (4526/4528/4529/4530/4532/4533 + 4535-padded). 0-of-18 vs 7-of-7 is
+  not plausibly probabilistic noise, so something about the guard build is bad,
+  most likely the byte-exact reorder/link LAYOUT (this project has a history of
+  link-module-order effects under -O4), by a mechanism not yet explained. Do NOT
+  assert one; several mechanism guesses have already been wrong here.
+
+## Practical conclusion
+
+- The important fix (v3 boot-record write) flashes reliably; ship no-guard
+  images (KITSUNE_OTA_PATCH=patches/ota-write-fix-only.patch).
+- The commit guard fixes only a BENIGN bookkeeping bug (a fallback mis-commit
+  that never causes a runtime fault) and its build somehow will not OTA-install.
+  Not worth the trouble: drop or defer it until the layout mechanism is
+  understood. Device currently on 4535 (no-guard, padded, healthy).
+- Padding a .bin with trailing zeros is a safe, working way to hit a target
+  size (the padded 4535 boots and runs normally).
+
 ## Practical consequences
 
 - **A failed update costs a reboot and nothing else.** The device always comes

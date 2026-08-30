@@ -1,0 +1,106 @@
+diff --git a/kitsune/fatfs_cmd.c b/kitsune/fatfs_cmd.c
+index 2ad66c37..d74e01c2 100644
+--- a/kitsune/fatfs_cmd.c
++++ b/kitsune/fatfs_cmd.c
+@@ -1233,7 +1233,9 @@ static _i32 _WriteBootInfo(sBootInfo_t *psBootInfo)
+     unsigned long ulBootInfoCreateFlag;
+ 
+ 
+-    sl_FsDel((unsigned char *)IMG_BOOT_INFO,ulBootInfoToken);
++    /* v3: no delete. The record is a fail-safe file; updating it in
++       place lets the FS keep the previous version until the new one
++       commits. Hello's later master also dropped this delete. */
+     //
+     // Initialize boot info file create flag
+     //
+@@ -1262,11 +1264,11 @@ static _i32 _WriteBootInfo(sBootInfo_t *psBootInfo)
+             sl_FsWrite(hndl, 0, (_u8 *)psBootInfo, sizeof(sBootInfo_t));  // Dummy write, we don't care about the result
+         }
+ 	}
+-	if( 0 < sl_FsWrite(hndl, 0, (_u8 *)psBootInfo, sizeof(sBootInfo_t)) )
+ 	{
+-		LOGI("WriteBootInfo: ucActiveImg=%d, ulImgStatus=0x%x\n\r", psBootInfo->ucActiveImg, psBootInfo->ulImgStatus);
++		_i32 wrv = sl_FsWrite(hndl, 0, (_u8 *)psBootInfo, sizeof(sBootInfo_t));
++		_i32 crv = sl_FsClose(hndl, 0, 0, 0);
++		LOGI("WriteBootInfo: ucActiveImg=%d, ulImgStatus=0x%x w %d c %d\n\r", psBootInfo->ucActiveImg, psBootInfo->ulImgStatus, wrv, crv);
+ 	}
+-	sl_FsClose(hndl, 0, 0, 0);
+     return 0;
+ }
+ 
+@@ -1325,6 +1327,33 @@ static _i32 _McuImageGetNewIndex(void)
+ int wait_for_top_boot(unsigned int timeout);
+ int send_top(char *, int);
+ 
++/* Verify the boot record against REAL flash: the live NWP answers reads from
++   cache, so the only honest check is stop -> start (fresh NWP) -> read.
++   Rewrites and retries if the record did not stick. One shared copy: the
++   three reset sites cannot afford triplicated code, the image is near the
++   link limit. */
++static void _commit_boot_record_durably(void) {
++	sBootInfo_t chk;
++	_i32 rv;
++	int t;
++	for( t = 0; t < 3; ++t ) {
++		rv = sl_Stop(30000);
++		sl_Start(NULL, NULL, NULL);
++		memset(&chk, 0, sizeof(chk));
++		rv = _ReadBootInfo(&chk);
++		LOGI("armchk2 t%d rd %d st %x img %d\n", t, rv, chk.ulImgStatus, chk.ucActiveImg);
++		if( rv >= 0 && chk.ulImgStatus == sBootInfo.ulImgStatus
++				&& chk.ucActiveImg == sBootInfo.ucActiveImg ) {
++			break;
++		}
++		LOGE("boot record not durable, rewriting\n");
++		_WriteBootInfo(&sBootInfo);
++		vTaskDelay(500);
++	}
++	sl_Stop(30000);
++	vTaskDelay(200);
++}
++
+ bool is_test_boot() {
+ 	static bool read_bootinfo = false;
+ 
+@@ -1364,6 +1393,13 @@ void boot_commit_ota() {
+ 								IMG_ACT_USER1;
+         _WriteBootInfo(&sBootInfo);
+ 		//send_top("rst ", sizeof("rst "));
++		{
++			sBootInfo_t bi_chk;
++			_i32 bi_rv;
++			(void)bi_rv; (void)bi_chk;
++			vTaskDelay(1000);
++			_commit_boot_record_durably();
++		}
+ 		mcu_reset();
+ 	}
+ }
+@@ -1373,6 +1409,13 @@ void reset_to_factory_fw() {
+ 	sBootInfo.ulImgStatus = IMG_STATUS_NOTEST;
+ 	sBootInfo.ucActiveImg = IMG_ACT_FACTORY;
+ 	_WriteBootInfo(&sBootInfo);
++	{
++		sBootInfo_t bi_chk;
++		_i32 bi_rv;
++		(void)bi_rv; (void)bi_chk;
++		vTaskDelay(1000);
++		_commit_boot_record_durably();
++	}
+ 	mcu_reset();
+ }
+ 
+@@ -1603,6 +1646,13 @@ void file_download_task( void * params ) {
+                     memcpy(sBootInfo.sha[_McuImageGetNewIndex()], download_info.sha1.bytes, SHA1_SIZE );
+                     //sBootInfo.ucActiveImg this is set by boot loader
+                     _WriteBootInfo(&sBootInfo);
++                    {
++                    	sBootInfo_t bi_chk;
++                    	_i32 bi_rv;
++                    	(void)bi_rv; (void)bi_chk;
++                    	vTaskDelay(1000);
++                    	_commit_boot_record_durably();
++                    }
+                     mcu_reset();
+                 }
+             } else {
