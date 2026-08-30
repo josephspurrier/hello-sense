@@ -117,7 +117,7 @@ if [ -n "${KITSUNE_DEV_DOMAIN:-}${KITSUNE_PROD_DOMAIN:-}" ]; then
   fi
   echo ">> rewriting $SLOT endpoints to *.$DOMAIN_VALUE"
   command -v python3 >/dev/null || { echo "python3 required for KITSUNE_DEV_DOMAIN"; exit 1; }
-  DOMAIN="$DOMAIN_VALUE" SLOT="$SLOT" python3 - "$WORK/src" <<'REWRITE'
+  DOMAIN="$DOMAIN_VALUE" SLOT="$SLOT" SKIP_TIME_HOST="${KITSUNE_SKIP_TIME_HOST:-}" python3 - "$WORK/src" <<'REWRITE'
 import os, re, sys
 root, domain = sys.argv[1], os.environ["DOMAIN"]
 slot = os.environ.get("SLOT", "DEV")
@@ -134,27 +134,45 @@ for pat, rep in subs:
     assert n == 2, "endpoints.h: expected 2 matches for %s, got %d" % (pat, n)
 open(ep, "w").write(s)
 
-# TIME_HOST has no DEV twin upstream: it is a plain #define with exactly one use
-# site. Give it one, so `dev 1` switches all three endpoints rather than two and
-# leaves the clock talking to a domain that no longer answers.
+# TIME_HOST is a plain #define with one use site, and it gets a plain string
+# swap. Nothing clever.
+#
+# THIS USED TO INJECT A FUNCTION and it produced an image that does not boot.
+# The idea was to give TIME_HOST a DEV twin like the other two endpoints, so
+# `dev 1` would return all three to hello.is:
+#
+#     #include <stdbool.h>
+#     extern volatile bool use_dev_server;
+#     static char * _time_host(void){
+#         return use_dev_server ? "time.hello.is" : "time.<domain>";
+#     }
+#     #define TIME_HOST _time_host()
+#
+# It compiled cleanly and hashed correctly onto the device's flash, and the
+# bootloader then refused to run it, twice, falling back to the previous image
+# every time. Proven on 2026-08-29: build 4515 (with the function) failed twice;
+# build 4517, byte-for-byte the same change minus the function, installed first
+# time and is running. The `extern volatile bool` declaration was copied from
+# get_server() in wifi_cmd.c, so the suspect is the <stdbool.h> include landing
+# after sys_time.c's "sl_sync_include_after_simplelink_header.h". Not proven,
+# but do not reintroduce this without a device you can reach over UART.
+#
+# The cost of the simple version is that `dev 1` no longer moves the clock. That
+# is acceptable: the other two endpoints still toggle, and time.<domain> is a
+# name you control, so the fallback still reaches a working server.
 st = os.path.join(root, "kitsune", "sys_time.c")
 s = open(st).read()
 old = '#define TIME_HOST "time.hello.is"'
 assert s.count(old) == 1, "sys_time.c: TIME_HOST not found exactly once"
-# In DEV mode the new domain is what `dev 1` selects. In PROD mode it is the
-# default and `dev 1` is the way back to hello.is, which the LAN DNS answers.
+
 if slot == "PROD":
-    on_dev, on_prod = "time.hello.is", "time." + domain
+    s = s.replace(old, '#define TIME_HOST "time.%s"' % domain)
+    open(st, "w").write(s)
+    print("   PROD endpoints rewritten; TIME_HOST -> time.%s" % domain)
 else:
-    on_dev, on_prod = "time." + domain, "time.hello.is"
-new = ('#include <stdbool.h>\n'   # wifi_cmd.h brings in stdint, not stdbool
-       'extern volatile bool use_dev_server;\n'
-       'static char * _time_host(void){\n'
-       '\treturn use_dev_server ? "%s" : "%s";\n'
-       '}\n'
-       '#define TIME_HOST _time_host()' % (on_dev, on_prod))
-open(st, "w").write(s.replace(old, new))
-print("   %s endpoints rewritten in endpoints.h and sys_time.c" % slot)
+    # In DEV mode the new domain is what `dev 1` selects, and making the clock
+    # follow would need the function above. Left alone deliberately.
+    print("   DEV endpoints rewritten; TIME_HOST left on time.hello.is")
 REWRITE
 fi
 
