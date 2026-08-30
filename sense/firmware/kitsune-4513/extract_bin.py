@@ -3,8 +3,8 @@
 loadable sections in address order: .intvecs + .text + .const + .cinit.
 
 This is the tiobj2bin equivalent; tiobj2bin itself is missing/broken in the
-container, but the result is identical because these sections are contiguous
-PT_LOAD content with no gaps.
+container, and sections are placed at their address-derived offsets with
+alignment gaps zero-filled (see the comment in main).
 
 Usage: extract_bin.py <in.out> <out.bin>
 """
@@ -36,10 +36,26 @@ def main():
     d, secs = read_sections(inp)
     load = sorted((s for s in secs if s['sname'] in LOADABLE),
                   key=lambda s: s['addr'])
-    blob = b''
+    # Place each section at its ADDRESS-derived offset, zero-filling any
+    # alignment gap between sections. Naive concatenation shipped a subtly
+    # broken image whenever the linker aligned .cinit 4 bytes past the end of
+    # .const: the gap was dropped, so .cinit sat 4 bytes below its linked
+    # address in the .bin, boot-time C initialization read garbage, and the
+    # image crashed before main(). SHA verification cannot catch it (the file
+    # is self-consistent), and the bootloader silently reverts, which mimicked
+    # a boot-record failure for a full day of diagnosis on 2026-08-30. Stock
+    # 4513 is gap-free, so this changes nothing for the byte-exact build.
+    base = load[0]['addr']
+    blob = bytearray()
     for s in load:
+        pos = s['addr'] - base
+        if pos > len(blob):
+            print(f"  (zero-fill 0x{pos - len(blob):x} gap before {s['sname']})")
+            blob += b'\x00' * (pos - len(blob))
+        assert pos == len(blob), f"{s['sname']} overlaps previous section"
         blob += d[s['offset']:s['offset'] + s['size']]
         print(f"  {s['sname']:9s} @0x{s['addr']:08x} size 0x{s['size']:x}")
+    blob = bytes(blob)
     open(outp, 'wb').write(blob)
     import hashlib
     print(f"wrote {outp}: {len(blob)} bytes  sha1={hashlib.sha1(blob).hexdigest()}")
