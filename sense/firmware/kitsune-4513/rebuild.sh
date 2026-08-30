@@ -178,7 +178,7 @@ if slot == "PROD":
     open(st, "w").write(s)
     print("   PROD endpoints rewritten; TIME_HOST -> %s" % host)
 
-# KITSUNE_OTA_FLUSH_FIX: give the boot record time to reach flash before the
+# KITSUNE_OTA_FLUSH_FIX: make sure the boot record reaches flash before the
 # device is power-cycled.
 #
 # THE BUG. _WriteBootInfo() starts by DELETING /sys/mcubootinfo.bin, then
@@ -200,26 +200,77 @@ if slot == "PROD":
 # 4520 and 4521, identical to the running 4519 except eight bytes of version
 # constant, both failed, which is what ruled out image size and content.
 #
-# The fix is a delay, not sl_Stop(). sl_Stop() is what TI actually recommends,
-# but mcu_reset() then calls uart_logger_flush_err_shutdown(), and stopping the
-# NWP underneath the logger is a new failure mode that cannot be tested from
-# here. A delay addresses the race directly and adds no new API calls.
-# vTaskDelay is in milliseconds: configTICK_RATE_HZ is 1000.
+# v1 of this fix was a plain vTaskDelay(3000). The device logs captured on
+# 2026-08-29/30 showed it losing anyway: 26 of 34 armed attempts read back
+# NOTEST about 6 seconds after writing TESTREADY, so the delay was present and
+# insufficient. sl_FsClose() only queues the commit inside the NWP, and right
+# after an OTA download the NWP is still writing back a 146KB image, so a timed
+# delay is a bet, not a fix.
+#
+# v2 called sl_Stop(30000) before mcu_reset() and did NOT help: build 4526
+# carried it and every 4527 arm still failed the same two ways (record
+# reverted, or bootloader rejected a torn image). So either sl_Stop is not
+# flushing what we think, or the loss happens at write/close time, invisibly,
+# because _WriteBootInfo checks neither sl_FsClose nor logs its returns.
+#
+# v3 does three things:
+#   1. Removes the sl_FsDel() so the record is updated IN PLACE through the
+#      fail-safe file machinery instead of delete+recreate. Hello's own later
+#      master does exactly this (no delete), which reads like their fix for
+#      this same bug.
+#   2. Logs sl_FsWrite and sl_FsClose returns from _WriteBootInfo, and reads
+#      the record back at each reset site. The lines reach the SD card via
+#      mcu_reset's logger flush and upload after reboot.
+#   3. Keeps the vTaskDelay + sl_Stop(30000) with its return logged.
 if os.environ.get("OTA_FLUSH_FIX"):
     ff = os.path.join(root, "kitsune", "fatfs_cmd.c")
     s2 = open(ff).read()
+
+    # 1. No delete: update the record in place, as Hello's later master does.
+    del_line = "    sl_FsDel((unsigned char *)IMG_BOOT_INFO,ulBootInfoToken);"
+    assert del_line in s2, "fatfs_cmd.c: sl_FsDel line not found"
+    s2 = s2.replace(del_line,
+        "    /* v3: no delete. The record is a fail-safe file; updating it in\n"
+        "       place lets the FS keep the previous version until the new one\n"
+        "       commits. Hello's later master also dropped this delete. */")
+
+    # 2. Log write and close returns instead of ignoring them.
+    old_tail = ("\tif( 0 < sl_FsWrite(hndl, 0, (_u8 *)psBootInfo, sizeof(sBootInfo_t)) )\n"
+                "\t{\n"
+                "\t\tLOGI(\"WriteBootInfo: ucActiveImg=%d, ulImgStatus=0x%x\\n\\r\", psBootInfo->ucActiveImg, psBootInfo->ulImgStatus);\n"
+                "\t}\n"
+                "\tsl_FsClose(hndl, 0, 0, 0);\n"
+                "    return 0;")
+    assert old_tail in s2, "fatfs_cmd.c: _WriteBootInfo tail not found"
+    new_tail = ("\t{\n"
+                "\t\t_i32 wrv = sl_FsWrite(hndl, 0, (_u8 *)psBootInfo, sizeof(sBootInfo_t));\n"
+                "\t\t_i32 crv = sl_FsClose(hndl, 0, 0, 0);\n"
+                "\t\tLOGI(\"WriteBootInfo: ucActiveImg=%d, ulImgStatus=0x%x w %d c %d\\n\\r\", psBootInfo->ucActiveImg, psBootInfo->ulImgStatus, wrv, crv);\n"
+                "\t}\n"
+                "    return 0;")
+    s2 = s2.replace(old_tail, new_tail)
+
+    # 3. At each reset: read the record back, then a logged sl_Stop.
     pat = re.compile(r"(_WriteBootInfo\(&sBootInfo\);\n)((?:[^\n]*//[^\n]*\n)?)([ \t]*)mcu_reset\(\);")
     def rep(m):
         ind = m.group(3)
         return (m.group(1) + m.group(2)
-                + ind + "/* Let the boot record reach flash before the top board cuts power.\n"
-                + ind + "   Without this the commit races the reset and the record reverts. */\n"
-                + ind + "vTaskDelay(3000);\n"
+                + ind + "{\n"
+                + ind + "\tsBootInfo_t bi_chk;\n"
+                + ind + "\t_i32 bi_rv;\n"
+                + ind + "\tvTaskDelay(1000);\n"
+                + ind + "\tmemset(&bi_chk, 0, sizeof(bi_chk));\n"
+                + ind + "\tbi_rv = _ReadBootInfo(&bi_chk);\n"
+                + ind + "\tLOGI(\"armchk rd %d st %x img %d\\n\", bi_rv, bi_chk.ulImgStatus, bi_chk.ucActiveImg);\n"
+                + ind + "\tbi_rv = sl_Stop(30000);\n"
+                + ind + "\tLOGI(\"slstop rv %d\\n\", bi_rv);\n"
+                + ind + "\tvTaskDelay(500);\n"
+                + ind + "}\n"
                 + ind + "mcu_reset();")
     s2, n = pat.subn(rep, s2)
     assert n == 3, "fatfs_cmd.c: expected 3 boot-record resets, patched %d" % n
     open(ff, "w").write(s2)
-    print("   OTA flush fix applied at %d reset sites" % n)
+    print("   OTA flush fix v3 applied: no-delete, logged write/close, %d reset sites" % n)
 else:
     # In DEV mode the new domain is what `dev 1` selects, and making the clock
     # follow would need the function above. Left alone deliberately.
