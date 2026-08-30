@@ -750,7 +750,12 @@ type AccountUpdate struct {
 //
 // last_modified is compared to the MILLISECOND, matching what the app was given.
 // Comparing the timestamptz directly would fail on sub-millisecond digits that
-// never left the database.
+// never left the database. FLOOR, not a bare ::bigint cast: the cast ROUNDS
+// where Go's UnixMilli truncates, so a row whose fractional millisecond is .5
+// or above failed the guard against the very value this store had rendered,
+// and every guarded edit 409'd until something rewrote last_modified. Found
+// when a change-email kept reporting "already exists" with one account in the
+// table.
 func (s *Store) UpdateAccount(ctx context.Context, accountID int64, lastModifiedMS int64, u AccountUpdate) (AccountRow, error) {
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE accounts SET
@@ -759,7 +764,7 @@ func (s *Store) UpdateAccount(ctx context.Context, accountID int64, lastModified
 			height_cm = $8, weight_grams = $9, birthdate = $10,
 			tz_offset_ms = $11, last_modified = now()
 		WHERE id = $1
-		  AND (EXTRACT(EPOCH FROM last_modified) * 1000)::bigint = $2`,
+		  AND (FLOOR(EXTRACT(EPOCH FROM last_modified) * 1000))::bigint = $2`,
 		accountID, lastModifiedMS, u.Name, u.FirstName, u.LastName,
 		u.Gender, u.GenderOther, u.HeightCM, u.WeightGrams, u.Birthdate, u.TZOffsetMS)
 	if err != nil {
@@ -893,7 +898,7 @@ func (s *Store) UpdateEmail(ctx context.Context, accountID, lastModifiedMS int64
 	tag, err := s.pool.Exec(ctx, `
 		UPDATE accounts SET email = $3, last_modified = now()
 		WHERE id = $1
-		  AND (EXTRACT(EPOCH FROM last_modified) * 1000)::bigint = $2`,
+		  AND (FLOOR(EXTRACT(EPOCH FROM last_modified) * 1000))::bigint = $2`,
 		accountID, lastModifiedMS, email)
 	if isUniqueViolation(err) {
 		return AccountRow{}, ErrDuplicateEmail
