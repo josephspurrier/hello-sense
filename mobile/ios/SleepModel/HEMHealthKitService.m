@@ -212,16 +212,23 @@ static CGFloat const HEMHKServiceBackFillLimit = 3;
                        until:(NSDate*)endDate
                 withCalendar:(NSCalendar*)calendar
                   completion:(void(^)(NSArray* timelines, NSError* error))completion {
-    NSCalendarUnit unitsWeCareAbout = NSCalendarUnitYear|NSCalendarUnitMonth|NSCalendarUnitDay;
     NSDate* nextStartDate = startDate;
     NSDateComponents* components = nil;
-    
+
     BOOL haveTimelines = NO;
     NSMutableArray* timelines = [NSMutableArray array];
     dispatch_group_t getTimelineGroup = dispatch_group_create();
-    
+
+    // NSCalendarUnitDay ALONE, and this is load-bearing. The granularity is
+    // one unit by contract; the original code passed Year|Month|Day ORed
+    // together, which old iOS tolerated but modern iOS answers with
+    // NSOrderedSame for ANY two dates. That made this loop unterminating the
+    // first time Health sync ran: it walked one day per iteration for 65
+    // years' worth of dates, firing a timeline request per day, until the
+    // watchdog killed the app. Day granularity still compares the full date:
+    // "same day" requires the same day of the same month of the same year.
     __weak typeof(self) weakSelf = self;
-    while ([calendar compareDate:nextStartDate toDate:endDate toUnitGranularity:unitsWeCareAbout] != NSOrderedDescending) {
+    while ([calendar compareDate:nextStartDate toDate:endDate toUnitGranularity:NSCalendarUnitDay] != NSOrderedDescending) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         
         DDLogVerbose(@"retrieving timeline for date %@ to sync to healthkit", nextStartDate);
