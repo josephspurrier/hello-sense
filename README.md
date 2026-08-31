@@ -105,6 +105,7 @@ followed. Read these when a guide tells you *what* to do and you want to know
 | [Running orb](knowledgebase/RUNNING-ORB.md)                      | Operating the Go backend, including Apple push-notification setup                                 |
 | [Device protocol](knowledgebase/DEVICE-PROTOCOL.md)              | The Sense wire protocol: framing, signing, and endpoints                                          |
 | [OTA reliability](knowledgebase/OTA-RELIABILITY.md)              | Why over-the-air firmware updates kept failing, and the fix                                       |
+| [Device console](knowledgebase/DEVICE-CONSOLE.md)                | The on-device console over telnet, and reading and writing the SD card (how `sense/sd-card/` was recovered) |
 | [Custom firmware](knowledgebase/CUSTOM-FIRMWARE.md)              | What the CC3200 firmware can be made to do, and the order to attempt changes                       |
 | [Timeline algorithms](knowledgebase/TIMELINE-ALGORITHMS.md)      | How sleep timelines are scored, and the feature flags that hide them                              |
 | [Sleep Pill reference](knowledgebase/SLEEP-PILL.md)              | Deep hardware and flashing reference for the pill, including its on-die keys                       |
