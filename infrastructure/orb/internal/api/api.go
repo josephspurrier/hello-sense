@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/josephspurrier/hello-orb/orb/internal/api/insightart"
+	"github.com/josephspurrier/hello-orb/orb/internal/api/soundpreview"
 	"github.com/josephspurrier/hello-orb/orb/internal/scoring"
 	"github.com/josephspurrier/hello-orb/orb/internal/store"
 )
@@ -137,6 +138,10 @@ func (h *Handler) routes() {
 	// token, and this is exactly how the app fetched them from S3 before.
 	// Subtree, so the {$} rule above does not apply.
 	h.mux.Handle("GET "+insightImagePath, insightart.Handler(insightImagePath))
+	// The ringtone and sleep sound previews, embedded in the binary.
+	// Unauthenticated for the same reason as the banners: the app's audio
+	// player fetches a plain URL with no token, exactly as it did from S3.
+	h.mux.Handle("GET "+soundPreviewPath, soundpreview.Handler(soundPreviewPath))
 	h.mux.Handle("GET /v2/sensors", h.auth(h.getSensors))
 	h.mux.Handle("POST /v2/sensors", h.auth(h.postSensors))
 	h.mux.Handle("GET /v2/trends/{scale}", h.auth(h.getTrends))

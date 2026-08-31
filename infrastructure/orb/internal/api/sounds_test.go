@@ -2,8 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/josephspurrier/hello-orb/orb/internal/api/soundpreview"
 )
 
 // The ringtone list is the reference's, in the reference's order, and both
@@ -77,37 +80,119 @@ func TestSleepSoundsMatchFileInfo(t *testing.T) {
 	}
 }
 
-// The audio URL fields are OMITTED, not null and not empty.
+// Every sound the app can pick has an embedded preview, and the mapping from
+// display name to file is pinned.
 //
-// This is the deliberate divergence from suripu, and the test exists so that
-// serving a dead URL again is a decision rather than an accident. The app reads
-// these with nil-tolerant lookups (`dict[@"url"]`,
-// `SENObjectOfClass(dictionary[@"preview_url"], ...)`), so an absent key parses
-// as no preview rather than as a parse failure.
+// This test used to assert the opposite: that no URL fields were served,
+// because the audio was lost with the `hello-audio` bucket. It was recovered
+// from a Sense's SD card on 2026-08-31 (the sleep tones verify byte-exact
+// against the `file_info_one_five` SHA1s), so now the previews are load-bearing.
 //
-// When the audio is recovered from the SD card, this test is what should change
-// first, and changing it should be a conscious edit.
-func TestNoAudioURLsAreServed(t *testing.T) {
-	b, err := json.Marshal(alarmSounds)
+// The ringtone mapping goes through alarm.SoundPath on purpose: the preview
+// must be the file the device will ring. The literal table here pins that
+// mapping too, so an edit to SoundPath that silently reshuffles the tones
+// fails here as well as on the device.
+func TestEverySoundHasAnEmbeddedPreview(t *testing.T) {
+	ringtones := map[int]string{
+		4: "DIG001.mp3", 5: "DIG002.mp3", 6: "DIG003.mp3", 7: "DIG004.mp3",
+		8: "DIG005.mp3", 9: "NEW001.mp3", 10: "NEW002.mp3", 11: "NEW003.mp3",
+		12: "NEW004.mp3", 13: "NEW005.mp3", 14: "NEW006.mp3", 15: "ORG001.mp3",
+		16: "ORG002.mp3", 17: "ORG003.mp3", 18: "ORG004.mp3",
+	}
+	for _, s := range alarmSounds {
+		got := ringtonePreviewFile(s.ID)
+		if want := ringtones[s.ID]; got != want {
+			t.Errorf("%q (id %d) previews %s, want %s", s.Name, s.ID, got, want)
+		}
+		if !soundpreview.Has(got) {
+			t.Errorf("%q (id %d) has no embedded preview %s", s.Name, s.ID, got)
+		}
+	}
+	for _, s := range sleepSounds {
+		if !soundpreview.Has(s.file) {
+			t.Errorf("%q has no embedded preview %q", s.Name, s.file)
+		}
+	}
+}
+
+// The served URLs are absolute, built from the origin the phone reached us on,
+// and point nowhere near the dead bucket. The app hands the string to
+// `[NSURL URLWithString:]` with no base, so a relative path would silently
+// play nothing.
+func TestPreviewURLsAreBuiltFromTheRequest(t *testing.T) {
+	r := httptest.NewRequest("GET", "https://sense.example.com:8443/v2/sleep_sounds/combined_state", nil)
+
+	for _, s := range sleepSoundsWithPreviews(r) {
+		want := "https://sense.example.com:8443" + soundPreviewPath + s.file
+		if s.PreviewURL != want {
+			t.Errorf("%q preview_url = %q, want %q", s.Name, s.PreviewURL, want)
+		}
+	}
+
+	b, err := json.Marshal(sleepSoundsWithPreviews(r))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), `"url"`) {
-		t.Errorf("ringtones carry a url field: %s", b)
+	for _, dead := range []string{"hello-audio", "localstack", "s3.amazonaws.com"} {
+		if strings.Contains(string(b), dead) {
+			t.Errorf("sleep sounds point at dead audio: %s", b)
+		}
 	}
-	if strings.Contains(string(b), "hello-audio") || strings.Contains(string(b), "localstack") {
-		t.Errorf("ringtones point at dead audio: %s", b)
-	}
-
+	// The static list stays URL-free: the fill happens per request, so a
+	// stale origin can never be baked in.
 	b, err = json.Marshal(sleepSounds)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(b), "preview_url") {
-		t.Errorf("sleep sounds carry a preview_url field: %s", b)
+		t.Errorf("static sleep sound list carries a preview_url: %s", b)
 	}
-	if strings.Contains(string(b), "s3.amazonaws.com") {
-		t.Errorf("sleep sounds point at the dead bucket: %s", b)
+	b, err = json.Marshal(alarmSounds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"url"`) {
+		t.Errorf("static ringtone list carries a url: %s", b)
+	}
+}
+
+// The handler serves real audio with immutable caching and refuses anything
+// that is not one of ours, exactly like the insight art handler it mirrors.
+func TestPreviewHandlerServesAudioAndRefusesAnythingElse(t *testing.T) {
+	h := soundpreview.Handler(soundPreviewPath)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", soundPreviewPath+"DIG002.mp3", nil))
+	if rec.Code != 200 {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "audio/mpeg") {
+		t.Errorf("content-type = %q", ct)
+	}
+	if rec.Body.Len() < 10*1024 {
+		t.Errorf("body = %d bytes, too small to be a ringtone", rec.Body.Len())
+	}
+	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
+		t.Errorf("cache-control = %q; the app refetches every preview without it", cc)
+	}
+
+	for _, bad := range []string{
+		soundPreviewPath,
+		soundPreviewPath + "nope.mp3",
+		soundPreviewPath + "../sounds.go",
+		soundPreviewPath + "ST005.mp3", // Ocean Waves: real on the card, never offered
+	} {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest("GET", bad, nil))
+		if rec.Code != 404 {
+			t.Errorf("%s: status = %d, want 404", bad, rec.Code)
+		}
+	}
+
+	// A stray embedded file means the audio directory and the lists have
+	// diverged: 15 ringtones plus 11 sleep tones.
+	if got, want := len(soundpreview.Names()), len(alarmSounds)+len(sleepSounds); got != want {
+		t.Errorf("embedded file count = %d, want %d", got, want)
 	}
 }
 

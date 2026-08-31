@@ -1,54 +1,55 @@
 package api
 
-import "net/http"
+import (
+	"net/http"
+	"path"
+	"strings"
+
+	"github.com/josephspurrier/hello-orb/orb/internal/alarm"
+	"github.com/josephspurrier/hello-orb/orb/internal/api/soundpreview"
+)
 
 // Alarm ringtones and sleep sounds.
 //
-// # The audio is gone, and these endpoints ship without it
+// # The audio was gone, and now it is not
 //
-// Both of these carry a URL field pointing at Hello's `hello-audio` S3 bucket,
-// for the phone to play a preview. That bucket is empty. A content-hash sweep
-// of every blob in all 135 repositories, reachable and unreachable, against the
-// SHA1s recorded in the old `file_info` table found none of the 11 sleep tones
-// (24,631 blobs, zero matches, 2026-08-26). The only surviving audio anywhere is
-// one ringtone, `kasetsu/audio/server/raw/DIG005.raw`.
+// Both of these carry a URL field for the phone to play a preview, which used
+// to point at Hello's `hello-audio` S3 bucket. That bucket is empty, and a
+// content-hash sweep of every blob in all 135 repositories found none of the
+// sleep tones (24,631 blobs, zero matches, 2026-08-26; the write-up is in
+// knowledgebase/GOING-PUBLIC.md). suripu's own previews were broken anyway: it
+// signs the ringtone URLs against `http://localstack:4566/...`, a
+// Docker-internal hostname the phone cannot resolve. So previews had not
+// worked here at any point, and orb shipped with the URL fields omitted, which
+// the app tolerates (`dict[@"url"]` and
+// `SENObjectOfClass(dictionary[@"preview_url"], ...)` both yield nil).
 //
-// suripu's own answer is already broken in a way nobody noticed: it signs the
-// ringtone URLs against `http://localstack:4566/...`, a Docker-internal
-// hostname the phone cannot resolve, with a fresh signature and expiry on every
-// call. So previews have not worked here at any point.
+// The audio was recovered from a Sense's own SD card on 2026-08-31, exactly as
+// planned: all twelve SLPTONES files verify byte-exact against the SHA1s in
+// the `file_info_one_five` table, and the fifteen RINGTONE files came off the
+// same card. The previews are re-encoded to mp3, embedded in the binary by the
+// `soundpreview` package, and served the way `insightart` serves the card
+// banners. The URL fields below are filled in from the request origin; the
+// lists themselves did not change.
 //
-// So orb omits the URL rather than shipping a dead one. **This costs nothing
-// functional.** The id is the entire payload that matters: it is what the app
-// writes onto the alarm, and the Sense plays the tone from its own SD card by
-// that id, which is the path that actually rang on 2026-08-16. The URL only
-// ever drove an in-app preview.
-//
-// The app tolerates the absence. `SENSound` reads `dict[@"url"]` and
-// `SENSleepSounds` uses `SENObjectOfClass(dictionary[@"preview_url"], ...)`,
-// both of which yield nil rather than failing to parse.
-//
-// # When the audio is recovered
-//
-// It exists in exactly one place: the Sense's own microSD card, at the paths
-// `file_info` records (`/SLPTONES/ST010.RAW` and so on), with SHA1s to verify
-// against. It cannot be pulled over the wire: `cat` in the 1.9.2 firmware
-// prints with `LOGF("%s", ...)` and stops at the first null byte, `fsrd` reads
-// serial flash rather than the SD card, and the file-sync protocol only ever
-// pushes files to the device. That makes it a teardown, tracked in
-// GOING-PUBLIC.md rather than blocking these endpoints.
-//
-// At that point the change here is small and local: fill in `URL` and
-// `PreviewURL` from a served path, the way `insightart` already does for the
-// card banners. The lists below do not change.
+// The preview is still only a preview. The id is what the app writes onto the
+// alarm, and the Sense rings the tone from its own SD card by that id. To keep
+// the preview honest, the ringtone's file name is derived from
+// alarm.SoundPath, the same mapping the sync response uses, so the phone can
+// only ever preview the file the device will play.
+
+// soundPreviewPath is where orb serves the preview audio. Like the insight
+// card art, the app derives nothing from the shape: it plays the URLs we send.
+const soundPreviewPath = "/v1/sounds/previews/"
 
 // AlarmSound is one ringtone in the alarm tone picker.
 type AlarmSound struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
-	// URL is omitted while no audio exists to point it at. `omitempty` rather
-	// than a null, because the reference omits nothing and a null would be a
-	// third state the app has never been sent.
+	// URL is filled per-request from the origin the phone used to reach us,
+	// and omitted if the preview file is somehow absent. `omitempty` rather
+	// than a null, because a null would be a third state the app was never
+	// sent while the audio was missing.
 	URL string `json:"url,omitempty"`
 }
 
@@ -78,12 +79,27 @@ var alarmSounds = []AlarmSound{
 	{ID: 18, Name: "Sway"},
 }
 
+// ringtonePreviewFile maps a ringtone id to its preview's file name, through
+// the same mapping that decides what the device rings. /RINGTONE/DIG002.raw
+// becomes DIG002.mp3.
+func ringtonePreviewFile(soundID int) string {
+	return strings.TrimSuffix(path.Base(alarm.SoundPath(soundID)), ".raw") + ".mp3"
+}
+
 func (h *Handler) getAlarmSounds(w http.ResponseWriter, r *http.Request) {
 	if _, ok := AccountFrom(r); !ok {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
-	writeJSON(w, http.StatusOK, alarmSounds)
+	base := insightImageOrigin(r) + soundPreviewPath
+	out := make([]AlarmSound, len(alarmSounds))
+	for i, s := range alarmSounds {
+		out[i] = s
+		if name := ringtonePreviewFile(s.ID); soundpreview.Has(name) {
+			out[i].URL = base + name
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // SleepSound is one sleep tone.
@@ -91,6 +107,10 @@ type SleepSound struct {
 	ID         int    `json:"id"`
 	Name       string `json:"name"`
 	PreviewURL string `json:"preview_url,omitempty"`
+	// file is the preview's name in the soundpreview package: the on-device
+	// SLPTONES stem, from the same `file_info_one_five` rows the names and
+	// SHA1s came from. Unexported so it never leaks into the JSON.
+	file string
 }
 
 // SleepSoundDuration is one entry in the "play for how long" picker.
@@ -127,17 +147,33 @@ type CombinedSleepSoundState struct {
 // maps to a real file on the device's SD card. The ids are the sort_key values
 // the app orders by, and they skip 8 exactly as the source does.
 var sleepSounds = []SleepSound{
-	{ID: 1, Name: "Aura"},
-	{ID: 2, Name: "Nocturne"},
-	{ID: 3, Name: "Morpheus"},
-	{ID: 4, Name: "Horizon"},
-	{ID: 5, Name: "Cosmos"},
-	{ID: 6, Name: "Autumn Wind"},
-	{ID: 7, Name: "Fireside"},
-	{ID: 8, Name: "Rainfall"},
-	{ID: 9, Name: "Forest Creek"},
-	{ID: 10, Name: "Brown Noise"},
-	{ID: 11, Name: "White Noise"},
+	{ID: 1, Name: "Aura", file: "ST010.mp3"},
+	{ID: 2, Name: "Nocturne", file: "ST012.mp3"},
+	{ID: 3, Name: "Morpheus", file: "ST009.mp3"},
+	{ID: 4, Name: "Horizon", file: "ST011.mp3"},
+	{ID: 5, Name: "Cosmos", file: "ST002.mp3"},
+	{ID: 6, Name: "Autumn Wind", file: "ST003.mp3"},
+	{ID: 7, Name: "Fireside", file: "ST004.mp3"},
+	{ID: 8, Name: "Rainfall", file: "ST006.mp3"},
+	{ID: 9, Name: "Forest Creek", file: "ST008.mp3"},
+	{ID: 10, Name: "Brown Noise", file: "ST001.mp3"},
+	{ID: 11, Name: "White Noise", file: "ST007.mp3"},
+}
+
+// sleepSoundsWithPreviews is the served list: the static entries with
+// PreviewURL filled in from the origin the phone reached us on, for the same
+// reason the insight card art does it that way (the app hands the string to
+// `[NSURL URLWithString:]` with no base, and orb cannot know its own address).
+func sleepSoundsWithPreviews(r *http.Request) []SleepSound {
+	base := insightImageOrigin(r) + soundPreviewPath
+	out := make([]SleepSound, len(sleepSounds))
+	for i, s := range sleepSounds {
+		out[i] = s
+		if soundpreview.Has(s.file) {
+			out[i].PreviewURL = base + s.file
+		}
+	}
+	return out
 }
 
 // sleepDurations is the reference's fixed set. "Indefinitely" is a real option
@@ -167,7 +203,7 @@ func (h *Handler) getCombinedSleepSoundState(w http.ResponseWriter, r *http.Requ
 
 	writeJSON(w, http.StatusOK, CombinedSleepSoundState{
 		AvailableDurations: sleepDurationList{Durations: sleepDurations},
-		AvailableSounds:    sleepSoundList{Sounds: sleepSounds, State: sleepSoundsState},
+		AvailableSounds:    sleepSoundList{Sounds: sleepSoundsWithPreviews(r), State: sleepSoundsState},
 		// The SAME value /v2/sleep_sounds/status serves, not a second copy of
 		// the same literal. Two answers to "is a sound playing" that can drift
 		// apart is the class of split this consolidation exists to remove, and

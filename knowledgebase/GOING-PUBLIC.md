@@ -53,9 +53,29 @@ Two defects `apidiff` caught that tests would not have:
 
 Both are the reason the discipline is "diff before moving", not "read the Java".
 
-### The audio is gone, and this is the search so nobody repeats it
+### The audio: recovered 2026-08-31, and the search that preceded it
 
-Searched 2026-08-26 before committing to a teardown.
+**RECOVERED.** All 27 SD card audio files were extracted on 2026-08-31
+(working files, outside the public repo): 12 sleep tones (ST001 to ST012),
+15 ringtones (DIG, NEW, ORG), plus PINK/TONE/STAR startup sounds. Every one
+of the 12 SLPTONES files verifies byte-exact against the SHA1s in
+`file_info_one_five`, including the never-offered Ocean Waves (ST005).
+The format is headerless s16le PCM, mono, 32 kHz (`ConvertToPcm.sh` in
+kasetsu and `AUDIO_SAMPLE_RATE` in the firmware agree, and every file's byte
+count divides into a clean duration at 64,000 bytes per second). Curiosity:
+the recovered DIG005 is the same length as kasetsu's surviving copy but
+differs in nearly every byte, a different master of the same tone.
+
+orb now serves previews from them: mp3s embedded in the binary by
+`internal/api/soundpreview` (ringtones full length, sleep tones cut to 30 s
+because the device loops them), served unauthenticated at
+`/v1/sounds/previews/`, with `url` on `/v2/alarms/sounds` and `preview_url`
+on `/v2/sleep_sounds/combined_state` built from the request origin the way
+the insight art already is. The ringtone preview file is derived from
+`alarm.SoundPath`, so the phone can only preview what the device will ring.
+
+The search below is kept so nobody repeats it; it was searched 2026-08-26
+before committing to a teardown.
 
 **Every blob in all 135 repositories, reachable and unreachable, content-hashed
 against the SHA1s the old `file_info` table records for the 11 sleep tones:
