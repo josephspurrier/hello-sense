@@ -27,6 +27,17 @@
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>
+	<!--
+	  Password AutoFill. ?mode=developer makes the device fetch the
+	  apple-app-site-association file directly from the server instead of
+	  through Apple's CDN, and is the only mode that permits a non-443 port.
+	  It applies to development-signed builds only and requires the phone's
+	  Settings > Developer > Associated Domains Development toggle.
+	-->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:$(SENSE_WEBCRED_DOMAIN)?mode=developer</string>
+	</array>
 	<key>com.apple.developer.healthkit</key>
 	<true/>
 	<key>com.apple.security.application-groups</key>

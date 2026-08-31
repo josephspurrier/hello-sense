@@ -239,18 +239,21 @@ static CGFloat const HEMSignInFormScrollDuration = 0.25f;
     BOOL secure = NO;
     UIReturnKeyType returnKeyType = UIReturnKeyNext;
     UIKeyboardType keyboardType = UIKeyboardTypeAlphabet;
+    UITextContentType contentType = nil;
     
     switch (row) {
         default:
         case HEMSignInFormRowEmail:
             placeholderText = NSLocalizedString(@"onboarding.account.email", nil);
             keyboardType = UIKeyboardTypeEmailAddress;
+            contentType = UITextContentTypeUsername;
             [self setEmailField:[textFieldCell textField]];
             break;
         case HEMSignInFormRowPass:
             placeholderText = NSLocalizedString(@"onboarding.account.password", nil);
             returnKeyType = UIReturnKeyDone;
             secure = YES;
+            contentType = UITextContentTypePassword;
             [self setPassField:[textFieldCell textField]];
             break;
     }
@@ -261,6 +264,7 @@ static CGFloat const HEMSignInFormScrollDuration = 0.25f;
     [[textFieldCell textField] setDelegate:self];
     [[textFieldCell textField] setReturnKeyType:returnKeyType];
     [[textFieldCell textField] setKeyboardType:keyboardType];
+    [[textFieldCell textField] setTextContentType:contentType];
     [[textFieldCell textField] setAutocorrectionType:UITextAutocorrectionTypeNo];
     [[textFieldCell textField] setAutocapitalizationType:UITextAutocapitalizationTypeNone];
 }

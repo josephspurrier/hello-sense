@@ -15,6 +15,8 @@
 
 SENSE_API_URL = https:$(SLASH)$(SLASH)sense.example.com:8443
 
+SENSE_WEBCRED_DOMAIN = sense.example.com:8443
+
 // Your bundle identifiers. These must match App IDs that exist in your Apple
 // Developer account, along with the four `group.` app groups derived from them
 // (.settings and .data for each), or signing will fail.

@@ -28,6 +28,10 @@ services:
       # nothing and a listener that answers everything with a 404, which is a
       # confusing way to find out .env is incomplete.
       APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in .env, e.g. sense.example.com}
+      # Apple developer team id, used in the apple-app-site-association
+      # response (iOS Password AutoFill). Empty is fine: AutoFill association
+      # simply will not work until it is set.
+      APPLE_TEAM_ID: ${APPLE_TEAM_ID:-}
     ports:
       - "${APP_PUBLISH:-8443}:8443"
     volumes:

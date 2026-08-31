@@ -19,6 +19,12 @@ SLASH = /
 
 SENSE_API_URL = https:$(SLASH)$(SLASH)sense.example.com:8443
 
+// The domain the app is associated with for iOS Password AutoFill
+// (webcredentials). Host plus port, no scheme. A port other than 443 only
+// works because the entitlement uses ?mode=developer; see the entitlements
+// file. Normally the same host:port as SENSE_API_URL.
+SENSE_WEBCRED_DOMAIN = sense.example.com:8443
+
 // The bundle identifiers. Two of them, because the project ships a test id used
 // by Debug and Dev and a production id used by Release and Beta, and the
 // entitlements file lists both so that one file serves every configuration.

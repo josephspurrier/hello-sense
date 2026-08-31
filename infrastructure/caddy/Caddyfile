@@ -20,6 +20,16 @@ https://{$APP_DOMAIN}:8443 {
 
 	encode gzip
 
+	# iOS Password AutoFill. The phone fetches this to verify the app is
+	# allowed to receive credentials saved for this domain (the app carries a
+	# matching webcredentials entitlement, in ?mode=developer so the fetch
+	# comes here directly, on this port, instead of via Apple's CDN). The team
+	# id is private and comes from .env via docker-compose.
+	handle /.well-known/apple-app-site-association {
+		header Content-Type application/json
+		respond `{"webcredentials":{"apps":["{$APPLE_TEAM_ID}.com.josephspurrier.sense","{$APPLE_TEAM_ID}.com.josephspurrier.sensetest"]}}`
+	}
+
 	# orb by service name on the Compose network. Its API port is not published
 	# to the host in a public deployment; this is the only way in.
 	reverse_proxy orb:9999
