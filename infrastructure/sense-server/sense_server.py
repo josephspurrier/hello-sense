@@ -215,6 +215,27 @@ class TLSHelloServer(TLSSocketServerMixIn, ReusableHTTPServer):
             return False
 
 
+def _read_exact(rfile, n):
+    """Read EXACTLY n bytes, looping over short reads.
+
+    Load-bearing for the Sense with Voice audio upload. A batch upload is one
+    small Content-Length body that arrives in a single TLS record, so a lone
+    rfile.read(n) returns all of it. The voice utterance is a long chunked
+    stream whose chunks straddle TLS record boundaries, and tlslite hands back
+    one record at a time, so read(size) can return fewer bytes than asked. The
+    old code trusted a single read to return the whole chunk; when it came up
+    short the next readline() landed inside the audio and parsed ADPCM bytes as
+    a hex chunk size ("invalid literal for int() with base 16"), killing the
+    upload and lighting the device red."""
+    buf = bytearray()
+    while len(buf) < n:
+        part = rfile.read(n - len(buf))
+        if not part:
+            raise ConnectionError("connection closed mid-chunk")
+        buf.extend(part)
+    return bytes(buf)
+
+
 def read_chunked_body(rfile):
     """Read a chunked transfer-encoded body and return the reassembled bytes."""
     chunks = []
@@ -226,11 +247,13 @@ def read_chunked_body(rfile):
         line = raw.strip()
         if not line:
             continue
-        size = int(line, 16)
+        # A chunk-size line may carry extensions after a ';' (RFC 7230); the
+        # size is only the part before it.
+        size = int(line.split(b";", 1)[0], 16)
         if size == 0:
             rfile.readline()  # trailing CRLF
             break
-        chunks.append(bytes(rfile.read(size)))
+        chunks.append(_read_exact(rfile, size))
         rfile.readline()      # trailing CRLF after chunk
     return b"".join(chunks)
 
