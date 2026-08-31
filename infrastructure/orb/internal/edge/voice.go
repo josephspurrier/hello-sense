@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/josephspurrier/hello-orb/orb/internal/messeji"
 	"github.com/josephspurrier/hello-orb/orb/internal/roomstate"
 	"github.com/josephspurrier/hello-orb/orb/internal/sense"
 	"github.com/josephspurrier/hello-orb/orb/internal/speech"
@@ -117,7 +118,7 @@ func (h *Handler) pushVoiceVolume(ctx context.Context, w http.ResponseWriter, de
 	}
 	// message_id is the unix-nano clock: unique enough for the device's ack
 	// queue, and monotonic so a later push always looks newer.
-	batch := messejiVolumeBatch(volume, time.Now().UnixNano())
+	batch := messeji.VolumeBatch(volume, time.Now().UnixNano())
 	signed, err := sense.Sign(key, batch)
 	if err != nil {
 		h.log.Error("sign voice volume", "device", deviceID, "err", err)

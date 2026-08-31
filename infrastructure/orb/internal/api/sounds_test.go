@@ -203,7 +203,7 @@ func TestCombinedStateShape(t *testing.T) {
 	b, err := json.Marshal(CombinedSleepSoundState{
 		AvailableDurations: sleepDurationList{Durations: sleepDurations},
 		AvailableSounds:    sleepSoundList{Sounds: sleepSounds, State: sleepSoundsState},
-		Status:             sleepSoundsStatus(),
+		Status:             SleepSoundsStatus{Playing: false},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -216,17 +216,6 @@ func TestCombinedStateShape(t *testing.T) {
 		if !strings.Contains(string(b), key) {
 			t.Errorf("missing %s in %s", key, b)
 		}
-	}
-}
-
-// The status block and GET /v2/sleep_sounds/status must be the same payload.
-// Two answers to "is a sound playing" that can drift apart is the class of
-// split this consolidation exists to remove.
-func TestCombinedStatusMatchesTheStatusEndpoint(t *testing.T) {
-	a, _ := json.Marshal(sleepSoundsStatus())
-	combined, _ := json.Marshal(CombinedSleepSoundState{Status: sleepSoundsStatus()}.Status)
-	if string(a) != string(combined) {
-		t.Errorf("status endpoint = %s, combined_state status = %s", a, combined)
 	}
 }
 

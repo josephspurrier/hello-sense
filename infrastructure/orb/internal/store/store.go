@@ -278,6 +278,39 @@ func (s *Store) NextMessage(ctx context.Context, deviceID string) ([]byte, bool,
 	return payload, true, nil
 }
 
+// QueueDeviceMessage inserts one command for the device's long-poll to
+// collect, typically within half a second (the poll's tick). The payload is
+// the complete signed response body: the long-poll writes it to the device
+// verbatim, so signing happens at enqueue time, when the caller has the
+// device key in hand.
+func (s *Store) QueueDeviceMessage(ctx context.Context, deviceID string, payload []byte) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO device_messages (device_id, payload) VALUES ($1, $2)`,
+		deviceID, payload)
+	if err != nil {
+		return fmt.Errorf("store: queue message %s: %w", deviceID, err)
+	}
+	return nil
+}
+
+// SenseState returns the device's last self-reported state blob (protojson of
+// SenseState), or ok=false when the device has never reported one.
+func (s *Store) SenseState(ctx context.Context, deviceID string) ([]byte, bool, error) {
+	var state *string
+	err := s.pool.QueryRow(ctx,
+		`SELECT state FROM senses WHERE device_id = $1`, deviceID).Scan(&state)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("store: sense state %s: %w", deviceID, err)
+	}
+	if state == nil {
+		return nil, false, nil
+	}
+	return []byte(*state), true, nil
+}
+
 // SetSenseState records the device's self-reported state as JSONB. Housekeeping
 // that nothing joins on, and whose shape has changed across firmware versions,
 // so a document beats columns here.

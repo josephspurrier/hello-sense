@@ -117,6 +117,11 @@ type SleepSound struct {
 type SleepSoundDuration struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
+	// secs is what the id means to the device: how long to play before the
+	// long timeout fade. 0 is Indefinitely (the PlayAudio command omits the
+	// duration and the firmware plays until stopped). Unexported so the JSON
+	// stays the reference's two-field shape.
+	secs int
 }
 
 // The nesting is the reference's and the app depends on it: `availableSounds`
@@ -179,12 +184,12 @@ func sleepSoundsWithPreviews(r *http.Request) []SleepSound {
 // sleepDurations is the reference's fixed set. "Indefinitely" is a real option
 // and not a placeholder: it plays until stopped.
 var sleepDurations = []SleepSoundDuration{
-	{ID: 1, Name: "10 Minutes"},
-	{ID: 2, Name: "30 Minutes"},
-	{ID: 3, Name: "1 Hour"},
-	{ID: 4, Name: "2 Hours"},
-	{ID: 5, Name: "3 Hours"},
-	{ID: 6, Name: "Indefinitely"},
+	{ID: 1, Name: "10 Minutes", secs: 600},
+	{ID: 2, Name: "30 Minutes", secs: 1800},
+	{ID: 3, Name: "1 Hour", secs: 3600},
+	{ID: 4, Name: "2 Hours", secs: 7200},
+	{ID: 5, Name: "3 Hours", secs: 10800},
+	{ID: 6, Name: "Indefinitely", secs: 0},
 }
 
 // sleepSoundsState is "OK" whenever the list can be served.
@@ -196,7 +201,8 @@ var sleepDurations = []SleepSoundDuration{
 const sleepSoundsState = "OK"
 
 func (h *Handler) getCombinedSleepSoundState(w http.ResponseWriter, r *http.Request) {
-	if _, ok := AccountFrom(r); !ok {
+	accountID, ok := AccountFrom(r)
+	if !ok {
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
@@ -204,10 +210,10 @@ func (h *Handler) getCombinedSleepSoundState(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, CombinedSleepSoundState{
 		AvailableDurations: sleepDurationList{Durations: sleepDurations},
 		AvailableSounds:    sleepSoundList{Sounds: sleepSoundsWithPreviews(r), State: sleepSoundsState},
-		// The SAME value /v2/sleep_sounds/status serves, not a second copy of
-		// the same literal. Two answers to "is a sound playing" that can drift
+		// The SAME function /v2/sleep_sounds/status calls, not a second copy
+		// of the logic. Two answers to "is a sound playing" that can drift
 		// apart is the class of split this consolidation exists to remove, and
 		// this endpoint exists precisely so the app can ask both at once.
-		Status: sleepSoundsStatus(),
+		Status: h.sleepSoundsStatus(r, accountID),
 	})
 }

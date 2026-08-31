@@ -91,6 +91,8 @@ func TestImplementedPathsStillMatch(t *testing.T) {
 		{"GET", "/v2/alarms/sounds"},
 		{"GET", "/v2/sleep_sounds/combined_state"},
 		{"GET", "/v2/sleep_sounds/status"},
+		{"POST", "/v2/sleep_sounds/play"},
+		{"POST", "/v2/sleep_sounds/stop"},
 		{"GET", "/v1/sounds/previews/ST010.mp3"},
 		{"GET", "/v1/sounds/previews/DIG002.mp3"},
 		// The share page and its implicit bare-form redirect, same as the art.

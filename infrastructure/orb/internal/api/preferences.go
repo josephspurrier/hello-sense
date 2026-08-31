@@ -106,25 +106,5 @@ func (h *Handler) putPreferences(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, mergedPreferences(stored))
 }
 
-// SleepSoundsStatus is the shape of GET /v2/sleep_sounds/status.
-//
-// All four fields null or false: no sleep sound has ever been played on this
-// deployment and the Sense's speaker is not driven by anything orb does. The
-// app polls this constantly and expects the shape, not the feature.
-type SleepSoundsStatus struct {
-	Playing       bool `json:"playing"`
-	Sound         *any `json:"sound"`
-	Duration      *any `json:"duration"`
-	VolumePercent *int `json:"volume_percent"`
-}
-
-// sleepSoundsStatus is the single source for this payload. GET
-// /v2/sleep_sounds/status and the `status` block of
-// GET /v2/sleep_sounds/combined_state must never be able to disagree.
-func sleepSoundsStatus() SleepSoundsStatus {
-	return SleepSoundsStatus{Playing: false}
-}
-
-func (h *Handler) getSleepSoundsStatus(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, sleepSoundsStatus())
-}
+// The sleep sounds status endpoint lives in sleepsounds.go, with the play and
+// stop commands whose outcome it reports.

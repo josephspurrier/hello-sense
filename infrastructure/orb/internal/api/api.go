@@ -119,6 +119,8 @@ func (h *Handler) routes() {
 	h.mux.HandleFunc("GET "+photoPath+"{token}", h.getProfilePhotoImage)
 	h.mux.Handle("GET /v2/sleep_sounds/status", h.auth(h.getSleepSoundsStatus))
 	h.mux.Handle("GET /v2/sleep_sounds/combined_state", h.auth(h.getCombinedSleepSoundState))
+	h.mux.Handle("POST /v2/sleep_sounds/play", h.auth(h.postSleepSoundsPlay))
+	h.mux.Handle("POST /v2/sleep_sounds/stop", h.auth(h.postSleepSoundsStop))
 	h.mux.Handle("GET /v2/alarms/sounds", h.auth(h.getAlarmSounds))
 	h.mux.Handle("GET /v2/timeline/{date}", h.auth(h.getTimeline))
 	h.mux.Handle("GET /v2/insights", h.auth(h.getInsights))
