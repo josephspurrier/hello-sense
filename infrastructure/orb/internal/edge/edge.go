@@ -35,6 +35,7 @@ import (
 	"github.com/josephspurrier/hello-orb/orb/internal/pill"
 	"github.com/josephspurrier/hello-orb/orb/internal/roomstate"
 	"github.com/josephspurrier/hello-orb/orb/internal/sense"
+	"github.com/josephspurrier/hello-orb/orb/internal/speech"
 	"github.com/josephspurrier/hello-orb/orb/internal/store"
 )
 
@@ -74,6 +75,12 @@ type Handler struct {
 	// has just rebooted is how a recoverable fault becomes a brick. Loosen them
 	// to watch one happen, then put them back.
 	OTAPolicy ota.Policy
+
+	// Synth is the speech-to-text / text-to-speech client for the Sense with
+	// Voice upload endpoint. Nil is fine: the endpoint then answers every
+	// request with the canned "can't help yet" audio, which still closes the
+	// device's voice loop.
+	Synth *speech.Synth
 }
 
 func New(s *store.Store, log *slog.Logger) *Handler {
@@ -95,6 +102,10 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("POST /register/sense", h.registerSense)
 	mux.HandleFunc("POST /register/morpheus", h.registerSense)
 	mux.HandleFunc("POST /register/pill", h.registerPill)
+	// Sense with Voice: the wake-word utterance upload (speech.hello.is) and
+	// its keepalive. The device plays back the MP3 this returns.
+	mux.HandleFunc("POST /v2/upload/audio", h.uploadAudio)
+	mux.HandleFunc("/v2/ping", h.voicePing)
 	// OTA images. Inert unless FirmwareDir is set; see firmware.go.
 	mux.HandleFunc("GET /firmware/{name}", h.firmware)
 	mux.HandleFunc("/", h.byHost)

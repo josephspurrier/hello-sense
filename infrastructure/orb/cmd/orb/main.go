@@ -34,6 +34,7 @@ import (
 	"github.com/josephspurrier/hello-orb/orb/internal/ota"
 	"github.com/josephspurrier/hello-orb/orb/internal/push"
 	"github.com/josephspurrier/hello-orb/orb/internal/scoring"
+	"github.com/josephspurrier/hello-orb/orb/internal/speech"
 	"github.com/josephspurrier/hello-orb/orb/internal/store"
 	"github.com/josephspurrier/hello-orb/orb/internal/timeline"
 	"github.com/josephspurrier/hello-orb/orb/internal/worker"
@@ -55,6 +56,12 @@ func main() {
 		otaMinUptime = flag.Duration("ota-min-uptime", durationOr("ORB_OTA_MIN_UPTIME", ota.MinUptime),
 			"how long a device must have been running before an update is offered")
 		debug = flag.Bool("debug", false, "debug logging")
+
+		// The Sense with Voice speech pipeline. Both URLs point at the voice
+		// sidecar (STT and TTS); with either empty, the upload endpoint answers
+		// every utterance with canned audio and never transcribes.
+		voiceSTT = flag.String("voice-stt", os.Getenv("ORB_VOICE_STT_URL"), "speech-to-text sidecar URL; empty disables transcription")
+		voiceTTS = flag.String("voice-tts", os.Getenv("ORB_VOICE_TTS_URL"), "text-to-speech sidecar URL; empty disables synthesis")
 
 		// Apple push. All four are required together; with any missing, push is
 		// simply off. Defaults come from the environment so the signing key's
@@ -85,6 +92,12 @@ func main() {
 
 	h := edge.New(st, log)
 	h.ReadOnly = *shadow
+	h.Synth = speech.NewSynth(*voiceSTT, *voiceTTS)
+	if h.Synth.Available() {
+		log.Info("voice pipeline enabled", "stt", *voiceSTT, "tts", *voiceTTS)
+	} else {
+		log.Info("voice pipeline canned-only (no STT/TTS sidecar configured)")
+	}
 	// Off unless asked for. Serving firmware is the most consequential thing
 	// this process can do, so it takes a deliberate flag rather than a
 	// directory happening to exist.

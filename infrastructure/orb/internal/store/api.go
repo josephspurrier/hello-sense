@@ -1112,6 +1112,41 @@ func (s *Store) PutVoiceSettings(ctx context.Context, accountID int64, deviceID 
 	return v, err
 }
 
+// AccountLocation resolves the account's current timezone as a *time.Location,
+// for rendering a spoken time. Built on TimezoneAt so it agrees with every
+// other zone-aware read; nil with no error means no zone is on file.
+func (s *Store) AccountLocation(ctx context.Context, accountID int64) (*time.Location, error) {
+	_, zone, err := s.TimezoneAt(ctx, accountID, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if zone == "" {
+		return nil, nil
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return nil, fmt.Errorf("store: load zone %q: %w", zone, err)
+	}
+	return loc, nil
+}
+
+// LastSleepScore returns the most recent night's sleep score, for the voice
+// "how did I sleep" reply. ok=false means no scored night exists.
+func (s *Store) LastSleepScore(ctx context.Context, accountID int64) (int32, bool, error) {
+	var score int32
+	err := s.pool.QueryRow(ctx, `
+		SELECT sleep_score FROM sleep_stats
+		WHERE account_id = $1 AND sleep_score IS NOT NULL
+		ORDER BY date_of_night DESC LIMIT 1`, accountID).Scan(&score)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("store: last sleep score: %w", err)
+	}
+	return score, true, nil
+}
+
 // ErrStaleAccount means the caller's last_modified did not match the row.
 var ErrStaleAccount = errors.New("store: account modified since read")
 
