@@ -74,6 +74,23 @@ on `/v2/sleep_sounds/combined_state` built from the request origin the way
 the insight art already is. The ringtone preview file is derived from
 `alarm.SoundPath`, so the phone can only preview what the device will ring.
 
+Play followed the same day: POST /v2/sleep_sounds/play and /stop are messeji
+PlayAudio/StopAudio commands (hand-encoded in `internal/messeji`, signed,
+queued on `device_messages`), and /v2/sleep_sounds/status now reads the
+device's own recorded SenseState instead of a hardcoded not-playing.
+Verified end to end on the no-voice Sense 2026-08-31: play queued, device
+opened /SLPTONES/ST010.RAW two seconds later, stop stopped it.
+
+Two catalogue generations exist and they matter. The recovered files above
+are the voice-era set (`file_info_one_five`, 32 kHz masters, played by the
+CC3220 firmware at 32 kHz). The no-voice Sense's card holds the 2016 set
+(`file_info` in the precutover common.dump backup, 48 kHz masters, played
+by 1.9.2 at 48 kHz), all 11 sleep tones verified against those SHA1s via a
+captured debug manifest (kept privately with the working files). Both
+generations map every name to the same ST file, so paths and previews are
+right for both. The no-voice card's 16 ringtones plus PINK/STAR/TONE, and
+an uncatalogued ORG005.RAW, are a second audio set not yet exported.
+
 The search below is kept so nobody repeats it; it was searched 2026-08-26
 before committing to a teardown.
 
