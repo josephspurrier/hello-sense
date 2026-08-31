@@ -87,6 +87,11 @@ func (h *Handler) routes() {
 	h.mux.Handle("GET /v1/timezone", h.auth(h.getTimezone))
 	h.mux.Handle("POST /v1/timezone", h.auth(h.postTimezone))
 	h.mux.Handle("GET /v2/devices", h.auth(h.getDevices))
+	// Device removal. The /all variant is the factory-reset case and is a more
+	// specific pattern, so net/http prefers it over the bare {sense_id} DELETE.
+	h.mux.Handle("DELETE /v2/devices/sense/{sense_id}/all", h.auth(h.deleteSenseAll))
+	h.mux.Handle("DELETE /v2/devices/sense/{sense_id}", h.auth(h.deleteSense))
+	h.mux.Handle("DELETE /v2/devices/pill/{pill_id}", h.auth(h.deletePill))
 	h.mux.Handle("GET /v1/app/stats/unread", h.auth(h.getAppStatsUnread))
 	h.mux.Handle("PATCH /v1/app/stats", h.auth(h.patchAppStats))
 	h.mux.Handle("GET /v2/alarms", h.auth(h.getAlarms))

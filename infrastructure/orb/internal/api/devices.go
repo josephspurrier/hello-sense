@@ -170,3 +170,61 @@ func (h *Handler) getAppStatsUnread(w http.ResponseWriter, r *http.Request) {
 		HasUnansweredQuestions: unansweredQuestions,
 	})
 }
+
+// The device-removal endpoints behind the app's "Remove Sense/Pill" buttons,
+// ported from suripu-app's DeviceResource. All three answer 204 No Content,
+// and all three are idempotent: removing something already gone is a success,
+// which is what lets the app retry a half-finished removal cleanly.
+//
+// {sense_id}/all is the factory-reset variant: it drops EVERY account's link
+// to the Sense, not just the caller's, so a shared unit can be fully released.
+// It is registered as a more specific pattern than {sense_id}, so net/http
+// routes it first.
+
+func (h *Handler) deleteSense(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := AccountFrom(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	senseID := r.PathValue("sense_id")
+	if err := h.store.UnpairSense(r.Context(), accountID, senseID); err != nil {
+		h.log.Error("unpair sense", "account", accountID, "sense", senseID, "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	h.log.Info("unpaired sense", "account", accountID, "sense", senseID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deletePill(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := AccountFrom(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	pillID := r.PathValue("pill_id")
+	if err := h.store.UnpairPill(r.Context(), accountID, pillID); err != nil {
+		h.log.Error("unpair pill", "account", accountID, "pill", pillID, "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	h.log.Info("unpaired pill", "account", accountID, "pill", pillID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) deleteSenseAll(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := AccountFrom(r)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	senseID := r.PathValue("sense_id")
+	if err := h.store.UnlinkAllFromSense(r.Context(), senseID); err != nil {
+		h.log.Error("factory reset sense", "account", accountID, "sense", senseID, "err", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	h.log.Info("unlinked all accounts from sense", "by_account", accountID, "sense", senseID)
+	w.WriteHeader(http.StatusNoContent)
+}

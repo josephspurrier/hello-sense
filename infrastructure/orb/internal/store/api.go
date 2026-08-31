@@ -1026,6 +1026,47 @@ func (s *Store) PairPill(ctx context.Context, accountID int64, pillID string) (P
 	return PairedNew, nil
 }
 
+// UnpairSense removes this account's link to a Sense.
+//
+// active=false rather than a row delete, matching how the rest of orb treats
+// pairings as append-only history (DevicesFor and ActiveSenseID both filter on
+// active). Idempotent: unpairing something already unpaired is a no-op, which
+// is why the endpoint can answer 204 without checking first, as the reference
+// does.
+func (s *Store) UnpairSense(ctx context.Context, accountID int64, deviceID string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE account_senses SET active = false
+		WHERE account_id = $1 AND device_id = $2`, accountID, deviceID)
+	if err != nil {
+		return fmt.Errorf("store: unpair sense: %w", err)
+	}
+	return nil
+}
+
+// UnpairPill removes this account's link to a pill.
+func (s *Store) UnpairPill(ctx context.Context, accountID int64, pillID string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE account_pills SET active = false
+		WHERE account_id = $1 AND pill_id = $2`, accountID, pillID)
+	if err != nil {
+		return fmt.Errorf("store: unpair pill: %w", err)
+	}
+	return nil
+}
+
+// UnlinkAllFromSense drops EVERY account's link to a Sense, the factory-reset
+// case (DELETE /v2/devices/sense/{id}/all). The reference also disabled the
+// device's tokens; orb has no per-device tokens, so there is nothing further
+// to revoke.
+func (s *Store) UnlinkAllFromSense(ctx context.Context, deviceID string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE account_senses SET active = false WHERE device_id = $1`, deviceID)
+	if err != nil {
+		return fmt.Errorf("store: unlink all from sense: %w", err)
+	}
+	return nil
+}
+
 // ErrStaleAccount means the caller's last_modified did not match the row.
 var ErrStaleAccount = errors.New("store: account modified since read")
 
