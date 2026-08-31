@@ -16,6 +16,14 @@
 #   IMAGE          docker image tag         (default: kitsune-byteexact:5.1.5)
 #   PLATFORM       docker platform          (default: linux/386)
 #
+# Custom (non-byte-exact) builds, see README.md:
+#   KITSUNE_PROD_DOMAIN    rewrite the PROD endpoint slots to *.<domain>
+#   KITSUNE_DEV_DOMAIN     rewrite the DEV slots instead (`dev 1` toggles them;
+#                          note TIME_HOST is NOT switched by `dev`)
+#   KITSUNE_TIME_HOST      override the clock host; PROD builds only
+#   KITSUNE_OTA_FLUSH_FIX  =1 to apply the OTA reliability patch
+#   KITSUNE_OTA_PATCH      which patch to apply; needs KITSUNE_OTA_FLUSH_FIX=1
+#
 # Requirements: Docker with 32-bit emulation. On Apple Silicon / non-x86 hosts
 # run once:  docker run --privileged --rm tonistiigi/binfmt --install 386
 set -euo pipefail
@@ -37,6 +45,23 @@ if [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_OTA_FLUSH_FIX:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_DEV_DOMAIN:-}" ] && [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then
   echo "set one of KITSUNE_DEV_DOMAIN or KITSUNE_PROD_DOMAIN, not both" >&2; exit 1
+fi
+
+# Two settings are read only from inside another setting's block, so on their own
+# they used to do nothing at all AND leave CUSTOM empty, which meant the build
+# silently produced stock 4513 and then printed "BYTE-EXACT MATCH". That is the
+# worst possible outcome for KITSUNE_OTA_PATCH in particular: an image with no
+# OTA fix in it, reported as a success, ready to flash. Fail loudly instead.
+if [ -n "${KITSUNE_TIME_HOST:-}" ] && [ -z "${KITSUNE_PROD_DOMAIN:-}" ]; then
+  echo "KITSUNE_TIME_HOST only applies to a KITSUNE_PROD_DOMAIN build." >&2
+  echo "  On its own it is ignored, and TIME_HOST stays time.hello.is." >&2
+  echo "  DEV-slot builds never rewrite TIME_HOST; see README.md." >&2
+  exit 1
+fi
+if [ -n "${KITSUNE_OTA_PATCH:-}" ] && [ -z "${KITSUNE_OTA_FLUSH_FIX:-}" ]; then
+  echo "KITSUNE_OTA_PATCH requires KITSUNE_OTA_FLUSH_FIX=1." >&2
+  echo "  Without it no patch is applied and you get stock 4513." >&2
+  exit 1
 fi
 
 if [ -n "$CUSTOM" ]; then

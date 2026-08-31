@@ -28,11 +28,15 @@ answering DNS for a domain that no longer exists. Building your own endpoints in
 removes that dependency:
 
 ```bash
-KITSUNE_DEV_DOMAIN=example.com ./rebuild.sh     # -> out/kitsune-custom.bin
+KITSUNE_DEV_DOMAIN=example.com ./rebuild.sh     # -> out/kitsune-custom-4513.bin
+KITSUNE_DEV_DOMAIN=example.com KIT_VER=4600 ./rebuild.sh   # -> ...-4600.bin
 ```
 
 The result is **not** byte-exact, obviously, so the SHA1 check is skipped and the
-output goes to a different filename rather than overwriting the 4513 reference.
+output goes to `out/kitsune-custom-<KIT_VER>.bin` rather than overwriting the
+4513 reference. The build number is in the name because two custom builds would
+otherwise be two writes to one filename, and the second would quietly destroy
+the first.
 
 **It rewrites the DEV slots, not the PROD ones, and that is the whole point.**
 The firmware carries two sets of endpoints and chooses between them at boot from
@@ -42,17 +46,38 @@ way can be switched between your server and the original names over the serial
 console, with no reflash:
 
 ```
-dev 1     # use sense-in.example.com, messeji.example.com, time.example.com
+dev 1     # use sense-in.example.com and messeji.example.com
 dev 0     # back to the hello.is names
 ```
 
 That turns "the new domain does not work" from a disassembly into a one-line
 command.
 
-`TIME_HOST` has no DEV twin upstream, so the rewrite adds one. Without it `dev 1`
-would switch two endpoints out of three and leave the clock talking to a domain
-that no longer answers, and a Sense with a wrong clock has every sample it
-uploads discarded as out of range.
+**`TIME_HOST` does not switch, and that limits what `KITSUNE_DEV_DOMAIN` buys
+you.** `dev` only sets a flag that `get_server()` and `get_messeji_server()`
+read (`kitsune/wifi_cmd.c`); `TIME_HOST` is a plain compile-time `#define` with
+one use site in `kitsune/sys_time.c`, so it has no DEV twin and the rewrite
+deliberately does not add one. Giving it one means injecting a function, and
+that produced an image the bootloader refused to run, twice (build 4515, proven
+2026-08-29). See the long comment in `rebuild.sh`.
+
+So a `KITSUNE_DEV_DOMAIN` build still asks the clock for `time.hello.is` in both
+slots, and a Sense with a wrong clock has every sample it uploads discarded as
+out of range. That build therefore still needs something on the LAN answering
+DNS for `time.hello.is`.
+
+**To actually cut the dead domain loose, rewrite the PROD slots instead:**
+
+```bash
+KITSUNE_PROD_DOMAIN=example.com KITSUNE_TIME_HOST=192.0.2.10 ./rebuild.sh
+```
+
+`KITSUNE_TIME_HOST` overrides the derived `time.example.com`. It is worth
+setting: the clock is the one endpoint that runs over plain HTTP with no
+certificate to match, so it can be a bare IP, and an IP is far shorter than
+`time.example.com`. Every byte counts here, because these images sit a few
+hundred bytes under the link limit. You give up the `dev` escape hatch, so
+prove the certificate and DNS first, per the checklist below.
 
 ### Before you flash
 
@@ -92,7 +117,7 @@ falls back rather than bricking. Write to the slot that is **not** active:
 ```bash
 # with the device in bootloader mode (ID pin to RTS), from services/
 cc3200tool -p /dev/tty.usbserial-XXXX --reset none --sop2 '~rts' \
-  write_file ../sense/firmware/kitsune-4513/out/kitsune-custom.bin /sys/mcuimg3.bin
+  write_file ../sense/firmware/kitsune-4513/out/kitsune-custom-4513.bin /sys/mcuimg3.bin
 ```
 
 then update `/sys/mcubootinfo.bin` so `ucActiveImg` selects that slot and

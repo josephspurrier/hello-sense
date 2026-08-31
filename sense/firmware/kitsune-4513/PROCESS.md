@@ -152,6 +152,12 @@ cd full-instructions/sense/firmware/kitsune-4513
    `extract_bin.py` → **verify SHA1**,
 4. copies `out/kitsune.bin` and `out/kitsune.out`.
 
+Only the `.bin` is committed. The ELF is not byte-reproducible: `armcl` stamps
+ten random six-character suffixes into `.strtab` per run, so two identical
+builds differ in 60 bytes. None of them sit in a loadable section, which is why
+the `.bin` still matches. `out/kitsune.out` is gitignored for that reason;
+`kitsune_reord.out` is the committed reference ELF the forensic tools take.
+
 The build scripts are also bind-mounted into the container at run time (not only
 baked into the image), so edits to them take effect without rebuilding the image.
 

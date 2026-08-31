@@ -24,4 +24,11 @@ sense_fs_backup/
 # of these is Hello's firmware code (see NOTICE).
 sense/firmware/kitsune-4513/out/*
 !sense/firmware/kitsune-4513/out/kitsune.bin
-!sense/firmware/kitsune-4513/out/kitsune.out
+
+# out/kitsune.out is NOT committed, on purpose. The .bin is byte-reproducible;
+# the ELF it comes from is not. armcl stamps ten random six-character suffixes
+# into .strtab on every run (e.g. ".debug_frame\0 05538 WLXv3p"), so a verifying
+# rebuild left the repo dirty in 60 bytes that cannot affect anything. None of
+# those bytes are in a loadable section, which is exactly why the .bin still
+# matches. kitsune_reord.out is the committed reference ELF for elfdiff.py and
+# funcmp.py, so nothing is lost.
