@@ -24,6 +24,8 @@ sense_fs_backup/
 # of these is Hello's firmware code (see NOTICE).
 sense/firmware/kitsune-4513/out/*
 !sense/firmware/kitsune-4513/out/kitsune.bin
+sense/firmware/kitsune-voice/out/*
+!sense/firmware/kitsune-voice/out/kitsune.bin
 
 # out/kitsune.out is NOT committed, on purpose. The .bin is byte-reproducible;
 # the ELF it comes from is not. armcl stamps ten random six-character suffixes

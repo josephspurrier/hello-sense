@@ -334,6 +334,40 @@ class HelloHandler(BaseHTTPRequestHandler):
         self.wfile.write(head + payload)
         self.wfile.flush()
 
+    # Bytes handed to the socket per write when streaming a firmware image.
+    FW_CHUNK = 2048
+
+    def _finish_response_streamed(self, payload):
+        """Send headers, then the body in small individually-flushed chunks.
+
+        For a firmware OTA only. _finish_response's single whole-image write is
+        wrong here: it fills every buffer between this process and the Sense
+        (~140 KB), then blocks, and by the time the Sense has drained that into
+        its slow serial flash and asks for more, the blocked write has not
+        resumed inside the Sense's one-second recv timeout (kitsune hlo_http.c
+        SL_SO_RCVTIMEO tv_sec=1). The Sense treats the gap as end-of-stream and
+        keeps a truncated image (39% in testing, 142034 of 360984 B), which then
+        fails its SHA and is discarded. Feeding the socket in small, promptly
+        flushed chunks keeps a steady trickle in flight the whole way down, so
+        the Sense's recv never starves, which is how the original S3-served OTA
+        behaved. TCP_NODELAY stops Nagle from holding a chunk back waiting to
+        coalesce. Only the OTA path takes this; every other reply is small and
+        goes out whole through _finish_response.
+        """
+        try:
+            self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except OSError:
+            pass
+        self._headers_buffer.append(b"\r\n")
+        head = b"".join(self._headers_buffer)
+        self._headers_buffer = []
+        self.wfile.write(head)
+        self.wfile.flush()
+        mv = memoryview(payload)
+        for off in range(0, len(payload), self.FW_CHUNK):
+            self.wfile.write(mv[off:off + self.FW_CHUNK])
+            self.wfile.flush()
+
     def _shadow(self, body):
         """Send a copy of this request to the orb Go edge, fire and forget.
 
@@ -425,7 +459,13 @@ class HelloHandler(BaseHTTPRequestHandler):
             if k.lower() not in HOP_BY_HOP:
                 self.send_header(k, v)
         self.send_header("Content-Length", str(len(payload)))
-        self._finish_response(payload)
+        # A firmware image is orders of magnitude larger than any other reply and
+        # the Sense writes it to slow serial flash as it arrives, so it must be
+        # trickled rather than written in one blast. See _finish_response_streamed.
+        if self.path.startswith("/firmware/"):
+            self._finish_response_streamed(payload)
+        else:
+            self._finish_response(payload)
         conn.close()
 
     def _serve_acme(self):

@@ -373,3 +373,99 @@ first-try installs.
   the NWP a little longer. Every content theory tested on 2026-08-29 (size
   cliff, slot, version ordering, added code, time-host string) died against
   the evidence; the writeup that once blamed the time host is wrong.
+
+## Sense with Voice (CC3220SF) OTA: a different slot path, and a serving bug
+
+Everything above is the CC3200 orb. The Sense with Voice is a CC3220SF and its
+OTA differs in two ways, each of which cost a round of failed (but always safe)
+attempts before the first successful flash: stock 6176 -> a custom 6177 built
+for your own domain. The fail-safe held throughout; every failed attempt
+abandoned WITHOUT touching the boot record, so the device stayed on its running
+image the whole time.
+
+### The slots live in /ota/, not /sys/
+
+`scripts/arm-firmware.sh` hardcodes `serial_flash_path=/sys/`, which is right for
+the CC3200 orb. The CC3220SF's images live in **/ota/**: both
+`kitsune/fatfs_cmd.c` and the application bootloader
+(`kitsune/boot/application_bootloader/main.c`) define
+`IMG_BOOT_INFO=/ota/mcubootinfo.bin`, `IMG_FACTORY_DEFAULT=/ota/mcuimg1.bin`,
+`IMG_USER_1=/ota/mcuimg2.bin`, `IMG_USER_2=/ota/mcuimg3.bin`. `/sys/` is a
+restricted system directory: `open_serial_flash` -> `sl_FsOpen(SL_FS_CREATE...)`
+returns < 0 there and the helper returns NULL SILENTLY (no error line). The
+device-log signature is distinctive: the transfer prints no "filesize/
+transferred", you see "done, closing" with nothing moved, then "computing SHA of
+/sys/mcuimg2.bin" -> "/sys/mcuimg2.bin does not exist/error!". Fix: arm with
+`serial_flash_path=/ota/` (keep `serial_flash_name=mcuimgx.bin` so the firmware
+slot-rotates to mcuimg2/3 itself; keep `sd_card_filename=mcuimgx.bin`,
+`sd_card_path=/`).
+
+Only `/ota/mcuimg1.bin` is provisioned in the factory image (the SLImageCreator
+ImageConfig.xml: unsigned, MaxFileSize 360984); mcuimg2/mcuimg3 and mcubootinfo
+are created at runtime in /ota/ (a writable, unsigned dir), which is why /ota/
+works and /sys/ does not. The A/B rollback is real and the same family as the
+CC3200: the bootloader marks the new slot TESTREADY -> TESTING before running it,
+`Test()`s the image, a watchdog catches a bad one, and it falls back to
+`IMG_FACTORY_DEFAULT` (the previous working image). A bad voice flash reverts,
+same as the orb.
+
+### The real blocker: the download truncated at 39%
+
+With /ota/ the write path worked and the device downloaded, but the transfer
+stopped at EXACTLY 142034 of 360984 bytes (39%) every time, so the post-download
+SHA never matched and the image was discarded. Proof: the device's computed SHA
+equalled sha1(image[:142034]) exactly, and the "DL %" progress in the device log
+stalled at 39.
+
+The server was not corrupting bytes: a curl of the device's exact URL
+(`http://sense-in.example.com/firmware/<name>`, port 80) returned all 360984
+bytes with the right SHA. The cause was `sense_server.py`: it read the whole
+image (`payload = resp.read()`) and wrote it in ONE `wfile.write(head+payload)`.
+That fills every buffer between the proxy and the Sense (~142 KB), then blocks;
+the Sense drains that slowly because it writes each block to serial flash as it
+arrives, and by the time it drains its buffer and asks for more, the blocked
+write has not resumed inside the Sense's ONE-SECOND recv timeout
+(`kitsune/hlo_http.c`, `SL_SO_RCVTIMEO` `tv_sec=1`). The Sense reads the gap as
+end-of-stream and keeps the 39% it had. Production served firmware from S3 -- a
+normal streaming file server that keeps a steady trickle in flight -- which is
+exactly what the Sense's stop-and-go, flash-paced read needs.
+
+### The fix: stream firmware in small flushed chunks
+
+`sense_server.py` now sends a firmware body in 2048-byte chunks, flushing each,
+with TCP_NODELAY, and ONLY for `/firmware/` paths (`_finish_response_streamed`).
+Every other reply still goes out whole through `_finish_response`, which is
+load-bearing: a small reply split across two writes lands in two TLS records and
+the Sense's single 2048-byte recv sees a body-less buffer (the reason that
+method exists). sense_server.py is COPYed into its image, not bind-mounted, so
+deploying means a rebuild:
+`export COMPOSE_FILE=docker-compose.yml:docker-compose.linux.yml && docker compose build sense-server && docker compose up -d --no-deps sense-server`
+(bare `docker compose` can't see sense-server -- it is only in
+docker-compose.linux.yml).
+
+With the fix the download ran past 39% to 100%, "SHA Match!" -> "change image
+status to IMG_STATUS_TESTREADY" -> reboot -> the device came back on the new
+version and orb auto-completed the update. One download, no retry loop. Because
+the image was built for your own domain, the device then reaches sense-in /
+messeji / speech / time at *.example.com natively, with no hello.is proxy.
+
+### Runbook for the next custom voice OTA
+
+1. Build: `KITSUNE_PROD_DOMAIN=example.com KIT_VER=<n> ./rebuild.sh` in
+   `sense/firmware/kitsune-voice` -> `out/kitsune-custom-<n>.bin`.
+2. Copy the .bin to the server and stage it under `infrastructure/firmware/`.
+3. Open the door in `.env`: `ORB_FIRMWARE_DIR=/firmware`, `ORB_OTA_WINDOW=0-23`,
+   `ORB_OTA_MIN_UPTIME=2m`; `docker compose up -d orb`.
+4. Arm ONE row for the voice device with **serial_flash_path=/ota/** (the
+   arm-firmware.sh /sys/ default is wrong here, so insert the row by hand):
+   device_id=<voice device id>, from_version=<current>, to_version=<n>,
+   host=sense-in.example.com, url=/firmware/<name>, sha1, file_size,
+   copy_to_serial_flash + reset_application_processor = true,
+   reset_network_processor = false, serial_flash_filename='mcuimgx.bin',
+   serial_flash_path='/ota/', sd_card_filename='mcuimgx.bin', sd_card_path='/'.
+5. Watch `docker logs hello-orb-orb-1` (with `-debug`) for OFFERING -> SERVING ->
+   SHA Match -> TESTREADY -> the new version (~2-3 min including the reboot).
+6. Close the door: clear the three OTA env vars, `docker compose up -d orb`,
+   disarm the row.
+
+Same fail-safe as the orb: a bad flash reverts to the running image.
