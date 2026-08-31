@@ -11,11 +11,14 @@
 // The files are named by their on-device stem (DIG002.mp3 for
 // /RINGTONE/DIG002.raw, ST010.mp3 for /SLPTONES/ST010.RAW) rather than by
 // display name, so the preview a phone fetches is tied to the file the Sense
-// will actually play. The device format is headerless 16-bit little-endian
-// PCM, mono, 32 kHz (kasetsu's ConvertToPcm.sh and AUDIO_SAMPLE_RATE in the
-// firmware agree); ringtone previews are the full tone, sleep previews are 30
-// seconds with a fade because the device loops them indefinitely, with the
-// very short loops (White Noise is 1.3 s) repeated to fill.
+// will actually play. Two generations of masters were recovered, both
+// headerless 16-bit little-endian mono PCM: the 48 kHz originals (what the
+// 1.9.2 no-voice firmware plays, and what the no-voice card's manifest
+// SHA1-matches) and a 32 kHz voice-era downsample of the same recordings.
+// These previews are encoded from the 48 kHz masters, so they are the exact
+// audio the device plays. Ringtone previews are the full tone; sleep previews
+// are 30 seconds with a fade because the device loops them indefinitely, with
+// the very short loops (White Noise is 1.3 s) repeated to fill.
 //
 // Embedded rather than installed alongside the binary, for the same reason as
 // insightart: a deploy is one file, and a second thing to copy is how it
