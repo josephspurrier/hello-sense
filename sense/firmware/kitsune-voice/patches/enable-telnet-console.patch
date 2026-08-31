@@ -1,0 +1,103 @@
+diff --git a/kitsune/commands.c b/kitsune/commands.c
+index 0f63e535..d0c08ecd 100644
+--- a/kitsune/commands.c
++++ b/kitsune/commands.c
+@@ -1756,9 +1756,8 @@ void launch_tasks() {
+ #ifdef KIT_INCLUDE_FILE_UPLOAD
+ 	xTaskCreate(FileUploaderTask_Thread,"fileUploadTask", 1024/4,NULL,1,NULL);
+ #endif
+-#ifdef BUILD_SERVERS //todo PVT disable!
++#if 1 // force-on: telnet console task (status http server left off)
+ 	xTaskCreate(telnetServerTask,"telnetServerTask",512/4,NULL,4,NULL);
+-	xTaskCreate(httpServerTask,"httpServerTask",3*512/4,NULL,4,NULL);
+ #endif
+ 	UARTprintf("*");
+ #if !ONLY_MID
+diff --git a/kitsune/hlo_audio_tools.c b/kitsune/hlo_audio_tools.c
+index b6d3c32f..067b35ff 100644
+--- a/kitsune/hlo_audio_tools.c
++++ b/kitsune/hlo_audio_tools.c
+@@ -811,7 +811,7 @@ int Cmd_stream_transfer(int argc, char * argv[]){
+ #if 0
+ 	hlo_stream_t * in = open_stream_from_path(argv[1],1);
+ #else
+-	hlo_stream_t * in = open_stream_from_path(argv[1],2); // TODO DKH
++	hlo_stream_t * in = open_stream_from_path(argv[1],1); // read once (was 2 = infinite replay)
+ #endif
+ 	hlo_stream_t * out = open_stream_from_path(argv[2],0);
+ 
+diff --git a/kitsune/uart_logger.c b/kitsune/uart_logger.c
+index 785671cd..714a24c0 100644
+--- a/kitsune/uart_logger.c
++++ b/kitsune/uart_logger.c
+@@ -96,9 +96,7 @@ _swap_and_upload(void){
+ 	//reset
+ 	self.widx = 0;
+ }
+-#ifdef BUILD_TELNET_SERVER
+-void telnetPrint(const char * str, int len );
+-#endif
++void telnetPrint(const char * str, int len ); /* force-on decl */
+ 
+ static void
+ _logstr(const char * str, int len, bool echo, bool store){
+@@ -127,9 +125,7 @@ _logstr(const char * str, int len, bool echo, bool store){
+ #endif
+ 
+ 	if (echo) {
+-#ifdef BUILD_TELNET_SERVER
+-		telnetPrint(str, len);
+-#endif
++		telnetPrint(str, len); /* force-on: mirror to telnet */
+ 		UARTwrite(str, len);
+ 	}
+ 	xSemaphoreGive(self.print_sem);
+diff --git a/kitsune/wifi_cmd.c b/kitsune/wifi_cmd.c
+index 9135b0df..6172a9a3 100644
+--- a/kitsune/wifi_cmd.c
++++ b/kitsune/wifi_cmd.c
+@@ -2620,7 +2620,7 @@ int wifi_status_set(unsigned int status, int remove_status)
+     return ret;
+ }
+ 
+-#if defined(BUILD_SERVERS) && defined(BUILD_TELNET_SERVER)
++#if 1 /* force-on: telnet console */
+ #include "ctype.h"
+ #if 0
+ #define SVR_LOGI UARTprintf
+@@ -2630,7 +2630,7 @@ int wifi_status_set(unsigned int status, int remove_status)
+ 
+ static void make_nonblocking( volatile int * sock ) {
+ 	SlSockNonblocking_t enableOption;
+-	enableOption.NonblockingEnabled = 1;
++	enableOption.NonBlockingEnabled = 1;
+ 	sl_SetSockOpt(*sock, SL_SOL_SOCKET, SL_SO_NONBLOCKING,
+ 			(_u8 *)&enableOption, sizeof(enableOption));
+ }
+@@ -2680,7 +2680,7 @@ static void serv(int port, volatile int * connection_socket, int (*cb)(volatile
+ 			memset(buf, 0, 64);
+ 			memset(linebuf, 0, 512);
+ 
+-			*connection_socket = sl_AcceptNoneThreadSafe(sock, &their_addr, &addr_size);
++			*connection_socket = sl_Accept(sock, (SlSockAddr_t *)&their_addr, (SlSocklen_t *)&addr_size);
+ 			setsockopt(*connection_socket, SOL_SOCKET, SO_RCVTIMEO, &tv,
+ 					sizeof(tv)); // Enable receive timeout
+ 
+@@ -2769,7 +2769,7 @@ static int send_buffer( volatile int* sock, const char * str, int len ) {
+ 	}
+ 	return sent;
+ }
+-#ifdef BUILD_TELNET_SERVER
++#if 1 /* force-on: telnet console */
+ volatile static int telnet_connection_sock;
+ void telnetPrint(const char * str, int len) {
+ 	if ( telnet_connection_sock > 0 && wifi_status_get(HAS_IP)) {
+@@ -2787,7 +2787,7 @@ static int cli_cb(volatile int *sock, char * linebuf, int inbufsz) {
+ 		char * args = pvPortMalloc(inbufsz + 1);
+ 		memcpy(args, linebuf, inbufsz + 1);
+ 		args[inbufsz - 2] = 0;
+-		xTaskCreate(CmdLineProcess, "commandTask", 5 * 1024 / 4, args, 4, NULL);
++		xTaskCreate(CmdLineProcess, "commandTask", 16 * 1024 / 4, args, 4, NULL);
+ 	}
+ 	return 0;
+ }

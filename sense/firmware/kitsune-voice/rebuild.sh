@@ -46,6 +46,7 @@ if [ "$KIT_VER" != "6149" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_HTTP_EXPORT_FIX:-}" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_ENABLE_SERVERS:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_DEV_DOMAIN:-}" ] && [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then
   echo "set one of KITSUNE_DEV_DOMAIN or KITSUNE_PROD_DOMAIN, not both" >&2; exit 1
 fi
@@ -225,6 +226,22 @@ if [ -n "${KITSUNE_HTTP_EXPORT_FIX:-}" ]; then
   echo ">> applying patches/http-export-flush.patch"
   git -C "$WORK/src" apply --whitespace=nowarn "$HERE/patches/http-export-flush.patch"
   echo "   HTTP export flush fix applied"
+fi
+
+# KITSUNE_ENABLE_SERVERS turns on the on-device telnet console (port 224), which
+# pipes what it receives into the command processor, so files can be pulled off
+# the device over the network (telnet -> `x` export) with no UART. The console
+# code is #ifdef BUILD_SERVERS / BUILD_TELNET_SERVER, off since production, and
+# defining those also rips out the uart_logger + analytics and rewires logging
+# to telnet. So instead of defining them, the patch force-includes ONLY the
+# telnet/http server code (the guards -> #if 1) and fixes one SDK bit-rot
+# (SlSockNonblocking_t.NonBlockingEnabled). Logging, radio-tx and analytics are
+# left exactly as a normal build. Turn the servers back off (drop this flag) for
+# a clean image once the files are recovered.
+if [ -n "${KITSUNE_ENABLE_SERVERS:-}" ]; then
+  echo ">> applying patches/enable-telnet-console.patch"
+  git -C "$WORK/src" apply --whitespace=nowarn "$HERE/patches/enable-telnet-console.patch"
+  echo "   on-device telnet console (port 224) enabled"
 fi
 
 # 3. Run the full build inside the container.
