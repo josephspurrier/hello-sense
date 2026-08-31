@@ -33,17 +33,25 @@ Applied when `KITSUNE_OTA_FLUSH_FIX=1`. Two independent OTA correctness fixes in
 
 ## `ota-write-fix-only.patch`
 
-The boot-record write fix WITHOUT the commit guard: it reproduces the firmware
-that shipped in builds 4526-4530 (the ones that installed). Select it with
-`KITSUNE_OTA_PATCH=patches/ota-write-fix-only.patch` alongside
-`KITSUNE_OTA_FLUSH_FIX=1`. Useful for isolating the commit guard from a flash
-test, since the guard first shipped in 4531 (which failed to install) and is
-also what makes that image ~300 bytes larger. Derived from
-`ota-reliability.patch` by reverting the two commit-guard additions (the
-`_running_image_is_new` helper and the guarded flip in `boot_commit_ota`).
+The boot-record write fix WITHOUT the commit guard. Historical: it was cut to
+isolate why guard builds would not install; the real culprit turned out to be
+extract_bin.py dropping section alignment gaps (fixed 2026-08-30, see
+OTA-RELIABILITY.md), and the guard is fine, first shipped working in build
+4539. Kept because a smaller variant is occasionally useful near the link
+limit. Select with `KITSUNE_OTA_PATCH=patches/ota-write-fix-only.patch`.
 
 `rebuild.sh` applies `${KITSUNE_OTA_PATCH:-patches/ota-reliability.patch}`, so
 the default build gets both fixes and this variable overrides which patch runs.
+
+## `ota-guard-inert.patch`, `ota-write-fix-durable.patch`
+
+Diagnostic variants from the 2026-08-30 investigation. `ota-guard-inert` keeps
+the guard's code linked but unreachable (layout probe). `ota-write-fix-durable`
+replaces the reset-site check with `_commit_boot_record_durably()`: write the
+record, `sl_Stop` -> `sl_Start` (a fresh NWP reads real flash, not cache),
+re-read, rewrite until it sticks (logs `armchk2 ...`). Proven in build 4538.
+Not folded into the default patch: the verification costs several seconds per
+reset and the images are a few hundred bytes from the link limit.
 
 ## What is NOT a patch
 
