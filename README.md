@@ -123,6 +123,28 @@ reproduces it **byte-for-byte** from source (SHA1 `0c5f639e…`, 146,864 bytes,
 identical to the on-device flash and the official release). See its `README.md`
 and `PROCESS.md`.
 
+### Sense with Voice (CC3220SF)
+
+The later **Sense with Voice** is a different unit: a *secure* TI **CC3220SF**
+(chip id `30000019`, versus `4000010` for the CC3200), so the CC3200 flash
+tooling and the byte-exact firmware above do not apply to it. It can still be
+brought onto this backend **without any firmware change**, entirely over its UART
+debug console (pin 4 / `ID` to GND on the micro-USB, 115200 8N1):
+
+- **Recover its AES key** with the running firmware's file-export command,
+  `x $~/cert/key.aes $o` (cc3200tool cannot read the secure flash), then register
+  the key against the device id in the backend `senses` table.
+- **Swap its CA trust anchor** the same way,
+  `x $ihttp://<host>/ca.der $~/cert/digi.cer` (HTTP on port 80, hostname not IP),
+  so the device trusts your server. Point its DNS at your host and set its clock
+  with `set-time` so TLS will proceed, and it does a full handshake and uploads.
+
+Custom firmware is possible too. Hello signed the CC3220SF images with TI's
+**default SimpleLink sample keys** (`CN=CA_IN_CERT_STORE`, shipped with the SDK
+and archived in `hello/nobita`), so a self-built kitsune image can be signed
+(SHA1 + RSA-2048) and delivered over OTA without reprovisioning; a bad image
+safe-reverts. The CC3220SF build recipe itself is not yet reproduced here.
+
 ## System overview
 
 The Hello Sense sleep system consists of:
