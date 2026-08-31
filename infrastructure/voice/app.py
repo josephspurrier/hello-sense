@@ -67,10 +67,13 @@ def tts():
         app.logger.error("piper failed: %s", piper.stderr.decode(errors="replace")[:400])
         return Response(b"", status=500)
 
+    # 32000 Hz out, NOT 16000: the device plays the voice reply at its
+    # AUDIO_SAMPLE_RATE (32 kHz), so a 16 kHz MP3 comes out at double speed and
+    # pitch. Matching 32 kHz makes it play at natural speed.
     ff = subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error",
          "-f", "s16le", "-ar", PIPER_RATE, "-ac", "1", "-i", "pipe:0",
-         "-ar", "16000", "-ac", "1", "-b:a", "48k", "-f", "mp3", "pipe:1"],
+         "-ar", "32000", "-ac", "1", "-b:a", "64k", "-f", "mp3", "pipe:1"],
         input=piper.stdout,
         capture_output=True,
     )

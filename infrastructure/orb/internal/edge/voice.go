@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/josephspurrier/hello-orb/orb/internal/roomstate"
@@ -101,7 +102,13 @@ func (h *Handler) uploadAudio(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) writeMP3(w http.ResponseWriter, mp3 []byte) {
+	// Content-Length explicitly, BEFORE WriteHeader: the device reads the
+	// response body straight into its MP3 decoder, so it needs a framed length,
+	// not chunked transfer-encoding (which Go would use if the header went out
+	// before the size was known). A chunked reply feeds chunk-size markers into
+	// libmad as if they were audio.
 	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(mp3)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(mp3)
 }
