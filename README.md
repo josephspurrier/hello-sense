@@ -145,6 +145,47 @@ and archived in `hello/nobita`), so a self-built kitsune image can be signed
 (SHA1 + RSA-2048) and delivered over OTA without reprovisioning; a bad image
 safe-reverts. The CC3220SF build recipe itself is not yet reproduced here.
 
+#### Voice assistant: what runs where
+
+The Sense with Voice's assistant works against this backend: say *"Okay Sense,
+what's the temperature?"* and it answers out loud from your own data, with no
+Hello cloud involved. Almost all of the logic is server-side; the dividing line
+is the wake word, and it is also a privacy boundary.
+
+**On the device (stock firmware, unchanged):**
+
+- **Wake-word detection.** "Okay Sense" (and "Stop"/"Snooze") are recognized by
+  a small neural net running *on the Sense itself*. This is the only piece of
+  voice logic not on the backend, and the reason the microphone audio never
+  leaves the device until the wake word fires.
+- Capturing the utterance, compressing it (IMA/DVI ADPCM), and streaming it to
+  `speech.hello.is`; playing back the MP3 answer; the LED animations.
+- **Stop/Snooze** are handled locally (stop playback, snooze a ringing alarm)
+  without contacting the server.
+
+**On the backend (orb + a small voice sidecar, all in this repo):**
+
+- **Speech-to-text** — `faster-whisper` (`infrastructure/voice/`).
+- **Intent + answer** — matched and answered from orb's own data in
+  `infrastructure/orb/internal/speech/` (protocol, ADPCM, intent) and
+  `internal/edge/voice.go` (the `POST /v2/upload/audio` endpoint and replies).
+- **Text-to-speech** — `piper`, re-sampled to the device's 32 kHz playback rate.
+- **Speaker volume** — pushed to the device as a signed `SET_VOLUME` over the
+  messeji channel (`internal/edge/messeji.go`); the device boots near-silent and
+  takes its volume only from that command.
+
+The upload is HMAC-signed with the Sense's AES key and the reply is signed like
+a sync response, so an unauthenticated caller cannot make the device speak.
+Because transcription and understanding are server-side, **adding or changing
+commands is a backend change, no reflashing** — only the wake phrase itself is
+fixed in firmware.
+
+Answered from live data today: **time, temperature, humidity, air quality,
+light, and last sleep score**. Alarms and sleep sounds are recognized but reply
+"not supported yet" (their actions are not wired up); anything else gets a
+spoken "can't help with that." The full list is also the app's **Voice** screen,
+served from `GET /v2/voice/commands`.
+
 ## System overview
 
 The Hello Sense sleep system consists of:
