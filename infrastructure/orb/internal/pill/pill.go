@@ -32,6 +32,13 @@ const (
 	accRangeG     = 4.0
 	gravityMS2    = 9.81
 	accResolution = 65536.0
+
+	// pill1p5MotionOffset and pill1p5MotionMultiplier offset and scale the v4
+	// (1.5 pill) motion value, matching suripu's PILL_1P5_MOTION_OFFSET and
+	// PILL_1P5_MOTION_MULTIPLIER. They were derived from comparing 1.0 and 1.5
+	// pills side by side; changing them silently reinterprets every v4 sample.
+	pill1p5MotionOffset     = 383
+	pill1p5MotionMultiplier = 2
 )
 
 // countsInG is the scale factor from raw counts to g.
@@ -53,6 +60,14 @@ type Motion struct {
 	MotionRange    int64
 	KickoffCounts  int64
 	OnDurationSecs int64
+
+	// MotionMask and CosTheta are only present in v4 (1.5 pill) payloads and are
+	// zero otherwise. MotionMask is a 60-bit-per-minute bitmask of which seconds
+	// saw motion; because valid masks only ever set bits 0..59, it doubles as a
+	// sanity check that the decryption key is correct (a wrong key yields random
+	// high bits). CosTheta is the pill's stored orientation-change measure.
+	MotionMask int64
+	CosTheta   int64
 }
 
 // Decrypt reverses the pill's AES-CTR encryption.
@@ -81,12 +96,17 @@ func Decrypt(key, payload []byte) ([]byte, error) {
 // Decode reads a decrypted payload according to its version.
 //
 // Versions 0 and 1 carry only an amplitude. Versions 2 and 3 add range, kickoff
-// count and duration. Version 4 adds cos(theta) and a motion mask and is not
-// implemented: this pill reports version 2, and writing an untested decoder for
-// a layout with no sample to check against would be worse than failing loudly.
+// count and duration. Version 4 is the 1.5 pill (pillx_DVT1) condensed payload:
+// max, cos(theta) and a per-second motion mask, with its own offset/scale. It is
+// the only version without the 0x5A magic trailer.
 func Decode(version int32, decrypted []byte) (Motion, error) {
-	if err := checkMagic(decrypted); err != nil {
-		return Motion{}, err
+	// Only v0..v3 append the 0x5A 0x5A magic trailer. The v4 (1.5 pill) payload
+	// ends in the motion mask, so checking it for magic would reject every valid
+	// sample; suripu likewise only magic-checks the pre-v4 decoders.
+	if version < 4 {
+		if err := checkMagic(decrypted); err != nil {
+			return Motion{}, err
+		}
 	}
 
 	switch version {
@@ -107,6 +127,22 @@ func Decode(version int32, decrypted []byte) (Motion, error) {
 			MotionRange:    int64(binary.LittleEndian.Uint16(decrypted[4:6])),
 			KickoffCounts:  int64(decrypted[6]),
 			OnDurationSecs: int64(decrypted[7]),
+		}, nil
+
+	case 4:
+		// 1.5 pill condensed payload: max(u8), cos_theta(u8), motion_mask(u64 LE).
+		// Mirrors suripu's decryptedToPillPayloadVersion3. The stored motion value
+		// is max reconstructed to its ~16-bit range (<<7), converted to milli-m/s^2,
+		// then offset and doubled to line the 1.5 pill up with the 1.0 pill.
+		if len(decrypted) < 10 {
+			return Motion{}, fmt.Errorf("pill: v4 needs 10 bytes, got %d", len(decrypted))
+		}
+		maxAccelMS2 := float64(int(decrypted[0])<<7) * countsInG
+		svm := (int64(1000*maxAccelMS2) - pill1p5MotionOffset) * pill1p5MotionMultiplier
+		return Motion{
+			SVMNoGravity: svm,
+			CosTheta:     int64(decrypted[1]),
+			MotionMask:   int64(binary.LittleEndian.Uint64(decrypted[2:10])),
 		}, nil
 
 	default:

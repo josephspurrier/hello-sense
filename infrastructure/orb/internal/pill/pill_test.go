@@ -102,10 +102,52 @@ func TestDecryptRejectsShortPayload(t *testing.T) {
 func TestDecodeRejectsUnknownVersion(t *testing.T) {
 	body := make([]byte, 10)
 	body[8], body[9] = 0x5A, 0x5A
-	// Version 4 exists (cosTheta, motion mask) but is deliberately not
-	// implemented, so it must fail loudly rather than silently mis-decode.
-	if _, err := pill.Decode(4, body); !errors.Is(err, pill.ErrVersion) {
+	// Version 5 does not exist, so it must fail loudly rather than mis-decode.
+	if _, err := pill.Decode(5, body); !errors.Is(err, pill.ErrVersion) {
 		t.Fatalf("err = %v, want ErrVersion", err)
+	}
+}
+
+// TestDecryptDecodeV4 covers the 1.5 pill (pillx_DVT1) condensed payload:
+// max(u8), cos_theta(u8), motion_mask(u64 LE), and no 0x5A magic trailer.
+func TestDecryptDecodeV4(t *testing.T) {
+	body := make([]byte, 10)
+	body[0] = 100                                              // max
+	body[1] = 200                                              // cos_theta
+	binary.LittleEndian.PutUint64(body[2:10], 0x00F0F0F0F0F0F0) // motion mask, high bits clear
+
+	payload := encryptLikePill(t, testKey, []byte("nonce123"), body)
+
+	decrypted, err := pill.Decrypt(testKey, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := pill.Decode(4, decrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// (100<<7)*countsInG*1000 = 7664.07; (7664 - 383) * 2 = 14562.
+	if m.SVMNoGravity < 14500 || m.SVMNoGravity > 14620 {
+		t.Errorf("SVMNoGravity = %d, want ~14562", m.SVMNoGravity)
+	}
+	if m.CosTheta != 200 {
+		t.Errorf("CosTheta = %d, want 200", m.CosTheta)
+	}
+	if uint64(m.MotionMask) != 0x00F0F0F0F0F0F0 {
+		t.Errorf("MotionMask = %016x, want 00f0f0f0f0f0f0", uint64(m.MotionMask))
+	}
+}
+
+// TestDecodeV4SkipsMagic proves v4 does not apply the 0x5A magic check: a
+// payload whose trailing bytes are not 0x5A (as a real motion mask usually is)
+// must still decode, unlike v0..v3.
+func TestDecodeV4SkipsMagic(t *testing.T) {
+	body := make([]byte, 10)
+	body[0] = 50
+	binary.LittleEndian.PutUint64(body[2:10], 0x0102030405060708) // no 0x5A anywhere
+	if _, err := pill.Decode(4, body); err != nil {
+		t.Fatalf("v4 must not magic-check, got %v", err)
 	}
 }
 

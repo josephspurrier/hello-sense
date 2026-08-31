@@ -412,6 +412,12 @@ func (h *Handler) pillBatch(w http.ResponseWriter, r *http.Request) {
 			skipped++
 			continue
 		}
+		// A valid v4 motion mask only ever sets bits 0..59 (seconds in a minute).
+		// Logging it (plus the raw values) lets a newly keyed pill be verified: a
+		// correct key yields a plausible mask, a wrong key yields random high bits.
+		h.log.Debug("pill sample decoded", "pill", pillID,
+			"version", pd.GetProtocolVersion(), "svm", m.SVMNoGravity,
+			"cos_theta", m.CosTheta, "motion_mask", fmt.Sprintf("%016x", uint64(m.MotionMask)))
 
 		samples = append(samples, store.PillSample{
 			PillID:         pillID,
