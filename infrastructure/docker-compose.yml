@@ -105,6 +105,11 @@ services:
       # put them back. orb logs a warning on every start while they are loosened.
       ORB_OTA_WINDOW: ${ORB_OTA_WINDOW:-}
       ORB_OTA_MIN_UPTIME: ${ORB_OTA_MIN_UPTIME:-}
+      # The Sense with Voice speech pipeline. Point at the voice sidecar; empty
+      # (override with VOICE_ENABLED unset) makes the upload endpoint answer
+      # every utterance with canned audio instead of transcribing.
+      ORB_VOICE_STT_URL: ${ORB_VOICE_STT_URL:-http://voice:8090/stt}
+      ORB_VOICE_TTS_URL: ${ORB_VOICE_TTS_URL:-http://voice:8090/tts}
     # -api-fallback is deliberately absent. It used to forward unimplemented
     # app API paths to suripu-app; orb now answers everything and suripu-app is
     # gone, so a fallback would only mask a missing route.
@@ -150,6 +155,25 @@ services:
       timeout: 5s
       retries: 6
       start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # The Sense with Voice speech pipeline: speech-to-text (faster-whisper) and
+  # text-to-speech (piper), the two things orb cannot do in Go. Only orb calls
+  # it, over the Compose network, so it is not published. The models are baked
+  # into the image, which makes the build heavy (~1 GB) and the first start
+  # slow, but every request after that is local and offline.
+  voice:
+    build:
+      context: ./voice
+    image: ${COMPOSE_PROJECT_NAME:-hello-orb}/voice:latest
+    restart: unless-stopped
+    # No ports: reachable only as http://voice:8090 from orb.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
 
 volumes:
   pgdata:
