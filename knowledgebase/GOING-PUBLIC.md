@@ -88,8 +88,13 @@ CC3220 firmware at 32 kHz). The no-voice Sense's card holds the 2016 set
 by 1.9.2 at 48 kHz), all 11 sleep tones verified against those SHA1s via a
 captured debug manifest (kept privately with the working files). Both
 generations map every name to the same ST file, so paths and previews are
-right for both. The no-voice card's 16 ringtones plus PINK/STAR/TONE, and
-an uncatalogued ORG005.RAW, are a second audio set not yet exported.
+right for both. Nothing on either card is unique any more: the voice
+Sense's full-card export (81 files) carries BOTH generations, the 32 kHz
+set under the plain names and the complete 48 kHz masters under 1xx names
+(SLPTON48/ST110 = the no-voice card's SLPTONES/ST010, RINGTO48/DIG101 =
+DIG001, and so on). All 34 files on the no-voice card verify byte-exact
+against those copies, including the uncatalogued ORG005.RAW, and the 48k
+export adds an ST105 (Ocean Waves) the no-voice card does not carry.
 
 The search below is kept so nobody repeats it; it was searched 2026-08-26
 before committing to a teardown.
