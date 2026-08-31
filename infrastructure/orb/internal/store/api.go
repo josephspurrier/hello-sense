@@ -1147,6 +1147,38 @@ func (s *Store) LastSleepScore(ctx context.Context, accountID int64) (int32, boo
 	return score, true, nil
 }
 
+// VoicePushInfo returns what is needed to push a Sense with Voice its speaker
+// volume: the device key to sign the messeji response, and the volume to set.
+//
+// ok=false (no rows) for anything that is not an active, paired VOICE Sense
+// (hw_version 4), so the caller never sends a volume command to a plain Sense,
+// whose speaker drives its alarm. The volume is the highest any paired account
+// has set, defaulting to full: with one speaker shared across partners, the
+// loudest wins rather than one account silencing the other.
+func (s *Store) VoicePushInfo(ctx context.Context, deviceID string) (key []byte, volume uint32, ok bool, err error) {
+	var v int32
+	err = s.pool.QueryRow(ctx, `
+		SELECT s.aes_key, COALESCE(MAX(vs.volume), 100)
+		FROM senses s
+		JOIN account_senses a ON a.device_id = s.device_id AND a.active
+		LEFT JOIN voice_settings vs
+		       ON vs.account_id = a.account_id AND vs.device_id = s.device_id
+		WHERE s.device_id = $1 AND s.hw_version = '4'
+		GROUP BY s.aes_key`, deviceID).Scan(&key, &v)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, 0, false, nil
+	}
+	if err != nil {
+		return nil, 0, false, fmt.Errorf("store: voice push info: %w", err)
+	}
+	if v < 0 {
+		v = 0
+	} else if v > 100 {
+		v = 100
+	}
+	return key, uint32(v), true, nil
+}
+
 // ErrStaleAccount means the caller's last_modified did not match the row.
 var ErrStaleAccount = errors.New("store: account modified since read")
 

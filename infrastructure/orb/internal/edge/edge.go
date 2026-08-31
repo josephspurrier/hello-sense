@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -81,6 +82,13 @@ type Handler struct {
 	// request with the canned "can't help yet" audio, which still closes the
 	// device's voice loop.
 	Synth *speech.Synth
+
+	// volumePushed records devices this process has already sent their speaker
+	// volume to over messeji. The Sense with Voice boots near-silent and only
+	// gets its volume from a SET_VOLUME command, so the first /receive poll
+	// after start delivers one. Once per process is enough: the device keeps
+	// the setting, and a restart harmlessly re-sends.
+	volumePushed sync.Map
 }
 
 func New(s *store.Store, log *slog.Logger) *Handler {
@@ -681,6 +689,17 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	// The Sense with Voice boots near-silent; deliver its speaker volume once,
+	// on the first poll after start, before falling into the normal wait. A
+	// device that is not a voice unit, has no key, or has already been sent its
+	// volume skips straight through.
+	if _, done := h.volumePushed.Load(deviceID); !done {
+		if h.pushVoiceVolume(ctx, w, deviceID) {
+			h.volumePushed.Store(deviceID, true)
+			return
+		}
+	}
 
 	// Poll rather than LISTEN/NOTIFY: one device, a 10 second horizon, and a
 	// query that hits a partial index. Notify machinery would be more moving

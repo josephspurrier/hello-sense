@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/josephspurrier/hello-orb/orb/internal/roomstate"
+	"github.com/josephspurrier/hello-orb/orb/internal/sense"
 	"github.com/josephspurrier/hello-orb/orb/internal/speech"
 )
 
@@ -99,6 +100,35 @@ func (h *Handler) uploadAudio(w http.ResponseWriter, r *http.Request) {
 	}
 	h.log.Info("voice reply", "device", deviceID, "reply", reply)
 	h.writeMP3(w, mp3)
+}
+
+// pushVoiceVolume delivers a signed SET_VOLUME over the messeji long-poll.
+// Returns true when it wrote a response (so the caller marks the device done
+// and stops), false to fall through to the normal wait (not a voice unit, no
+// key, or an encode error, none of which should hold up the poll).
+func (h *Handler) pushVoiceVolume(ctx context.Context, w http.ResponseWriter, deviceID string) bool {
+	key, volume, ok, err := h.store.VoicePushInfo(ctx, deviceID)
+	if err != nil {
+		h.log.Warn("voice volume lookup", "device", deviceID, "err", err)
+		return false
+	}
+	if !ok {
+		return false
+	}
+	// message_id is the unix-nano clock: unique enough for the device's ack
+	// queue, and monotonic so a later push always looks newer.
+	batch := messejiVolumeBatch(volume, time.Now().UnixNano())
+	signed, err := sense.Sign(key, batch)
+	if err != nil {
+		h.log.Error("sign voice volume", "device", deviceID, "err", err)
+		return false
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Length", strconv.Itoa(len(signed)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(signed)
+	h.log.Info("pushed voice volume", "device", deviceID, "volume", volume)
+	return true
 }
 
 func (h *Handler) writeMP3(w http.ResponseWriter, mp3 []byte) {
