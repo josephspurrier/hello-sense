@@ -99,6 +99,9 @@ services:
       # Empty means the /firmware/ route 404s. Set to /firmware only while an
       # update is actually being delivered, and clear it afterwards.
       ORB_FIRMWARE_DIR: ${ORB_FIRMWARE_DIR:-}
+      # Empty means the /export/ route 404s. Set to /export only while pulling
+      # files off a device (the `x` console export), and clear it afterwards.
+      ORB_EXPORT_DIR: ${ORB_EXPORT_DIR:-}
       # The two OTA gates. Defaults are 2-5 local and 20m, and both exist for a
       # reason: no update while the owner is asleep, and none handed to a device
       # that may be rebooting in a loop. Loosen them for a supervised test, then
@@ -149,6 +152,11 @@ services:
       # OTA images, read-only. Inert unless ORB_FIRMWARE_DIR is set: orb will
       # not serve firmware just because a directory exists.
       - ./firmware:/firmware:ro,z
+      # Where files a device pushes off itself land (the `x` console export).
+      # Writable, unlike firmware, because orb creates the files. Inert unless
+      # ORB_EXPORT_DIR is set. orb runs as uid 10001, so create the dir owned by
+      # it before enabling: mkdir -p export && sudo chown 10001 export.
+      - ./export:/export:z
     healthcheck:
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:9999/ping"]
       interval: 15s

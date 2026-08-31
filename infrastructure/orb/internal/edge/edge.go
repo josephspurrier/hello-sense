@@ -66,6 +66,12 @@ type Handler struct {
 	// server that cannot hand out firmware cannot hand out the wrong firmware.
 	FirmwareDir string
 
+	// ExportDir is where files the device pushes off itself are written. Empty
+	// means the /export/ route 404s, which is the default and the right one: a
+	// server that cannot accept a pushed file cannot be talked into writing one.
+	// See export.go.
+	ExportDir string
+
 	// OTAPolicy is when updates may be offered and how long the device must
 	// have been up first.
 	//
@@ -116,6 +122,9 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/v2/ping", h.voicePing)
 	// OTA images. Inert unless FirmwareDir is set; see firmware.go.
 	mux.HandleFunc("GET /firmware/{name}", h.firmware)
+	// Files the device pushes off its own storage (the `x` console export).
+	// Inert unless ExportDir is set; see export.go.
+	mux.HandleFunc("POST /export/{name}", h.export)
 	mux.HandleFunc("/", h.byHost)
 	return mux
 }

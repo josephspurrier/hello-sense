@@ -1,0 +1,33 @@
+diff --git a/kitsune/hlo_http.c b/kitsune/hlo_http.c
+index 459aad89..a2081bde 100644
+--- a/kitsune/hlo_http.c
++++ b/kitsune/hlo_http.c
+@@ -744,18 +744,18 @@ static int _fetch_response_code(void * ctx){
+ static int _close_post_session(void * ctx){
+ 	hlo_http_context_t * session = (hlo_http_context_t*)ctx;
+ 	int code = 0;
+-#if 0
+-	if( session->post_state != DONE_POST ){		//if no response has been parsed by a read call, we just finish here
++	// When the POST stream is closed without its response having been read (the
++	// `x` file-export pipe does exactly that), the final buffered chunk and the
++	// terminating 0-length chunk were never sent, so a file small enough to fit
++	// in one scratch buffer never completed its transfer. Flush them here. This
++	// block used to be #if 0'd out, which is the "HTTP export never finishes
++	// small files" bug (github issue #1). Only _finish_post is called on close:
++	// _fetch_response_code would spin against a server that returns no response,
++	// because the 1s recv timeout surfaces as a 0-length read, not an error.
++	if( session->post_state == POSTING ){
+ 		session->post_state = DONE_POST;
+-		if( _finish_post(ctx) < 0 ){
+-			goto cleanup;
+-		}
+-		if( _fetch_response_code(ctx) < 0){
+-			goto cleanup;
+-		}
++		_finish_post(ctx);
+ 	}
+-cleanup:
+-#endif
+ 	if(session->code){
+ 		code = session->code;
+ 		LOGI("POST returned code %d\r\n", session->code);

@@ -45,7 +45,7 @@ CUSTOM=""
 if [ "$KIT_VER" != "6149" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then CUSTOM=1; fi
-if [ -n "${KITSUNE_OTA_FLUSH_FIX:-}" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_HTTP_EXPORT_FIX:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_DEV_DOMAIN:-}" ] && [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then
   echo "set one of KITSUNE_DEV_DOMAIN or KITSUNE_PROD_DOMAIN, not both" >&2; exit 1
 fi
@@ -206,24 +206,25 @@ else:
 REWRITE
 fi
 
-# 2c. Optional: the OTA reliability fixes.
+# 2c. Optional: firmware C fixes, kept as real git patches under patches/ and
+# applied with `git apply` so they compile-check at author time and review as
+# normal diffs. Each one makes the image differ from the byte-exact reference,
+# so the SHA1 check is skipped like any other custom build.
 #
-# Domain-agnostic C bug fixes in kitsune/fatfs_cmd.c, kept as a real git
-# patch (patches/ota-reliability.patch, see patches/README.md) rather than
-# string surgery so they compile-check at author time and review as a normal
-# diff. Independent of the endpoint rewrite above. Setting this makes the
-# image differ from stock 4513, so the SHA1 check is skipped like any custom
-# build. --whitespace=nowarn: the 1.9.2 tree has space-before-tab indentation
-# the reset-site edits inherit, faithful to the shipped firmware.
-# KITSUNE_OTA_PATCH selects which patch to apply (default: both fixes). Point it
-# at patches/ota-write-fix-only.patch to reproduce the pre-commit-guard image
-# (build 4530 and earlier), which is useful for isolating the guard from a
-# flash test.
-if [ -n "${KITSUNE_OTA_FLUSH_FIX:-}" ]; then
-  OTA_PATCH="${KITSUNE_OTA_PATCH:-patches/ota-reliability.patch}"
-  echo ">> applying $OTA_PATCH"
-  git -C "$WORK/src" apply --whitespace=nowarn "$HERE/$OTA_PATCH"
-  echo "   OTA patch applied: $OTA_PATCH"
+# KITSUNE_HTTP_EXPORT_FIX fixes the `x` console command's HTTP file export
+# (used to pull files, e.g. the SD-card sleep tones, off the device). The POST
+# stream's close never flushed the final buffered chunk or the terminating
+# 0-length chunk (the finalizer was #if 0'd out), so a file small enough to fit
+# in one scratch buffer never completed its transfer. See
+# patches/http-export-flush.patch (hello-sense github issue #1).
+#
+# (The CC3200 orb's OTA-reliability patch is fatfs_cmd.c boot-record surgery
+# specific to that chip's flash layout; it does not apply to the CC3220SF and
+# lives in kitsune-4513, not here.)
+if [ -n "${KITSUNE_HTTP_EXPORT_FIX:-}" ]; then
+  echo ">> applying patches/http-export-flush.patch"
+  git -C "$WORK/src" apply --whitespace=nowarn "$HERE/patches/http-export-flush.patch"
+  echo "   HTTP export flush fix applied"
 fi
 
 # 3. Run the full build inside the container.

@@ -51,6 +51,8 @@ func main() {
 		noWorker = flag.Bool("no-worker", false, "serve the edge only, run no periodic jobs")
 		fwDir    = flag.String("firmware-dir", os.Getenv("ORB_FIRMWARE_DIR"),
 			"directory of OTA images to serve at /firmware/{name}; empty disables it")
+		exportDir = flag.String("export-dir", os.Getenv("ORB_EXPORT_DIR"),
+			"directory to write files the device pushes to /export/{name}; empty disables it")
 		otaWindow = flag.String("ota-window", envOr("ORB_OTA_WINDOW", "2-5"),
 			"hours in the device's local time when an update may be offered, as START-END")
 		otaMinUptime = flag.Duration("ota-min-uptime", durationOr("ORB_OTA_MIN_UPTIME", ota.MinUptime),
@@ -104,6 +106,10 @@ func main() {
 	h.FirmwareDir = *fwDir
 	if *fwDir != "" {
 		log.Warn("firmware serving ENABLED", "dir", *fwDir)
+	}
+	h.ExportDir = *exportDir
+	if *exportDir != "" {
+		log.Warn("file export ENABLED", "dir", *exportDir)
 	}
 	if w, err := parseOTAWindow(*otaWindow); err != nil {
 		log.Error("bad -ota-window, keeping the default", "value", *otaWindow, "err", err)
