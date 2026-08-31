@@ -1067,6 +1067,51 @@ func (s *Store) UnlinkAllFromSense(ctx context.Context, deviceID string) error {
 	return nil
 }
 
+// VoiceSettingsRow is one account's voice preferences for a Sense.
+type VoiceSettingsRow struct {
+	Volume    int32
+	Muted     bool
+	IsPrimary bool
+}
+
+// VoiceSettings returns the account's settings for a Sense. found=false means
+// nothing saved yet; the handler supplies the defaults so read and write agree
+// on them.
+func (s *Store) VoiceSettings(ctx context.Context, accountID int64, deviceID string) (VoiceSettingsRow, bool, error) {
+	var v VoiceSettingsRow
+	err := s.pool.QueryRow(ctx, `
+		SELECT volume, muted, is_primary FROM voice_settings
+		WHERE account_id = $1 AND device_id = $2`, accountID, deviceID).
+		Scan(&v.Volume, &v.Muted, &v.IsPrimary)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return VoiceSettingsRow{}, false, nil
+	}
+	if err != nil {
+		return VoiceSettingsRow{}, false, fmt.Errorf("store: voice settings: %w", err)
+	}
+	return v, true, nil
+}
+
+// PutVoiceSettings applies a partial voice-settings update (the app PATCHes
+// one field at a time). Nil fields are left as they are, defaulting to the
+// column defaults on first insert.
+func (s *Store) PutVoiceSettings(ctx context.Context, accountID int64, deviceID string, volume *int32, muted, isPrimary *bool) (VoiceSettingsRow, error) {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO voice_settings (account_id, device_id, volume, muted, is_primary)
+		VALUES ($1, $2, COALESCE($3, 100), COALESCE($4, false), COALESCE($5, false))
+		ON CONFLICT (account_id, device_id) DO UPDATE SET
+			volume     = COALESCE($3, voice_settings.volume),
+			muted      = COALESCE($4, voice_settings.muted),
+			is_primary = COALESCE($5, voice_settings.is_primary),
+			updated_at = now()`,
+		accountID, deviceID, volume, muted, isPrimary)
+	if err != nil {
+		return VoiceSettingsRow{}, fmt.Errorf("store: put voice settings: %w", err)
+	}
+	v, _, err := s.VoiceSettings(ctx, accountID, deviceID)
+	return v, err
+}
+
 // ErrStaleAccount means the caller's last_modified did not match the row.
 var ErrStaleAccount = errors.New("store: account modified since read")
 

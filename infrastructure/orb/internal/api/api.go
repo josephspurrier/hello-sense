@@ -92,6 +92,18 @@ func (h *Handler) routes() {
 	h.mux.Handle("DELETE /v2/devices/sense/{sense_id}/all", h.auth(h.deleteSenseAll))
 	h.mux.Handle("DELETE /v2/devices/sense/{sense_id}", h.auth(h.deleteSense))
 	h.mux.Handle("DELETE /v2/devices/pill/{pill_id}", h.auth(h.deletePill))
+
+	// Sense with Voice: settings, command catalog, and the (empty) expansions
+	// catalog. These populate the app's Voice and Expansions screens.
+	h.mux.Handle("GET /v2/devices/sense/{sense_id}/voice", h.auth(h.getVoiceSettings))
+	h.mux.Handle("PATCH /v2/devices/sense/{sense_id}/voice", h.auth(h.patchVoiceSettings))
+	h.mux.Handle("GET /v2/voice/commands", h.auth(h.getVoiceCommands))
+	h.mux.Handle("GET /v1/speech/onboarding", h.auth(h.getSpeechOnboarding))
+	h.mux.Handle("GET /v2/expansions", h.auth(h.getExpansions))
+	h.mux.Handle("GET /v2/expansions/{id}/configurations", h.auth(h.getExpansionConfigurations))
+	h.mux.Handle("PATCH /v2/expansions/{id}/configurations", h.auth(h.patchExpansionConfigurations))
+	h.mux.Handle("GET /v2/expansions/{id}", h.auth(h.getExpansion))
+	h.mux.Handle("PATCH /v2/expansions/{id}", h.auth(h.patchExpansion))
 	h.mux.Handle("GET /v1/app/stats/unread", h.auth(h.getAppStatsUnread))
 	h.mux.Handle("PATCH /v1/app/stats", h.auth(h.patchAppStats))
 	h.mux.Handle("GET /v2/alarms", h.auth(h.getAlarms))
