@@ -84,7 +84,7 @@ func (h *Handler) getDevices(w http.ResponseWriter, r *http.Request) {
 		out.Senses = append(out.Senses, Sense{
 			ID:              s.DeviceID,
 			FirmwareVersion: fmt.Sprintf("%x", s.FirmwareVersion),
-			HWVersion:       "SENSE",
+			HWVersion:       readableHWVersion(s.HWVersion),
 			LastUpdated:     s.LastSeenAt.UnixMilli(),
 			State:           "NORMAL",
 			Color:           "UNKNOWN",
@@ -169,6 +169,19 @@ func (h *Handler) getAppStatsUnread(w http.ResponseWriter, r *http.Request) {
 		HasUnreadInsights:      unreadInsights,
 		HasUnansweredQuestions: unansweredQuestions,
 	})
+}
+
+// readableHWVersion maps the raw X-Hello-Sense-HW value the device reported
+// (recorded by the edge on ingest) to the string the iOS app switches on. The
+// app gates its ENTIRE voice setup path on seeing "SENSE_WITH_VOICE" here;
+// everything else, including an unreported version, is a plain "SENSE". The
+// integers are the reference's HardwareVersion enum: 1 = SENSE_ONE, 4 =
+// SENSE_ONE_FIVE (the voice unit).
+func readableHWVersion(raw *string) string {
+	if raw != nil && *raw == "4" {
+		return "SENSE_WITH_VOICE"
+	}
+	return "SENSE"
 }
 
 // The device-removal endpoints behind the app's "Remove Sense/Pill" buttons,

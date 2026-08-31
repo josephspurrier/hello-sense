@@ -265,7 +265,12 @@ func (h *Handler) senseBatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		fw := int32(batch.GetFirmwareVersion())
-		if err := h.store.TouchSense(ctx, deviceID, now, &fw, batch.GetConnectedSsid()); err != nil {
+		// The device names its own hardware in this header (1 = Sense, 4 =
+		// Sense with Voice). It is the only thing that distinguishes the two
+		// to the app, which unlocks its voice setup path solely on the
+		// hw_version the devices endpoint reports back.
+		hw := r.Header.Get("X-Hello-Sense-HW")
+		if err := h.store.TouchSense(ctx, deviceID, now, &fw, batch.GetConnectedSsid(), hw); err != nil {
 			// Liveness is not worth failing an ingest over.
 			h.log.Warn("touch sense failed", "device", deviceID, "err", err)
 		}

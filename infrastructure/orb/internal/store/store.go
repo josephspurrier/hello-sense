@@ -131,12 +131,18 @@ func (s *Store) InsertSensorSamples(ctx context.Context, samples []SensorSample)
 // TouchSense records liveness and the current WiFi, replacing what
 // sense_last_seen and wifi_info held in DynamoDB. Cheap enough to do on every
 // upload, which is roughly once a minute.
-func (s *Store) TouchSense(ctx context.Context, deviceID string, seenAt time.Time, fw *int32, ssid string) error {
+// hwVersion is the raw value of the device's X-Hello-Sense-HW header (the TI
+// HardwareVersion integer: 1 = original Sense, 4 = Sense with Voice). Stored
+// verbatim and mapped to the app's wire string in the devices endpoint. Empty
+// leaves the column untouched, so a firmware or endpoint that omits the header
+// never blanks a value another request established.
+func (s *Store) TouchSense(ctx context.Context, deviceID string, seenAt time.Time, fw *int32, ssid, hwVersion string) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE senses SET last_seen_at = $2,
 		                  firmware_version = COALESCE($3, firmware_version),
-		                  wifi_ssid = COALESCE(NULLIF($4,''), wifi_ssid)
-		WHERE device_id = $1`, deviceID, seenAt, fw, ssid)
+		                  wifi_ssid = COALESCE(NULLIF($4,''), wifi_ssid),
+		                  hw_version = COALESCE(NULLIF($5,''), hw_version)
+		WHERE device_id = $1`, deviceID, seenAt, fw, ssid, hwVersion)
 	if err != nil {
 		return fmt.Errorf("store: touch sense %s: %w", deviceID, err)
 	}
