@@ -176,7 +176,15 @@ class ReusableHTTPServer(ThreadingMixIn, HTTPServer):
     # connecting, the backlog fills, and every upload is lost until restart.
     allow_reuse_address = True
     daemon_threads = True
-    request_timeout = 60  # comfortably above the ~10s messeji long-poll
+    # 300s, not 60s. The Sense with Voice opens its speech POST connection
+    # up front (hlo_sock_stream connects eagerly) and only then listens for
+    # the wake word, holding that socket idle for up to four minutes. A 60s
+    # deadline closed it underneath the device, so the first write after
+    # "okay sense" hit a dead socket, the voice filter exited
+    # HLO_STREAM_ERROR, and the ring went solid red with nothing reaching
+    # this server at all. Must clear the device's 4-minute window; also
+    # comfortably above the ~10s messeji long-poll.
+    request_timeout = 300
 
     def server_bind(self):
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
