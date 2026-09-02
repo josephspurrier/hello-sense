@@ -25,6 +25,13 @@ public final class Json {
         @JsonProperty("sensors")    public List<Sensor> sensors = new ArrayList<>();
         @JsonProperty("motion")     public List<Motion> motion = new ArrayList<>();
         @JsonProperty("feedback")   public List<Feedback> feedback = new ArrayList<>();
+
+        // The bed partner's pill samples over the same window, and whose they
+        // are. Empty and zero when the account has no partner. They mark the
+        // minutes where the partner moved and this sleeper did not; the
+        // reference's partner FILTERS, which rewrite `motion`, are not run.
+        @JsonProperty("partner_account_id") public long partnerAccountId;
+        @JsonProperty("partner_motion")     public List<Motion> partnerMotion = new ArrayList<>();
         // Go marshals []byte as base64, which Jackson decodes into byte[].
         @JsonProperty("prior_model") public byte[] priorModel;
         @JsonProperty("scratchpad")  public byte[] scratchpad;
@@ -138,6 +145,14 @@ public final class Json {
         // sleep_stats. A nested object would be tidier and would mean touching
         // the storage path to gain nothing.
         @JsonProperty("sleep_score")         public Integer sleepScore;
+        // The 0-100 room score behind one fifth of sleep_score, or null when
+        // the night had no sensor samples in the sleep window and the score
+        // was computed from duration alone. See Timeline.environmentScore.
+        @JsonProperty("environment_score")   public Integer environmentScore;
+        // How many PARTNER_MOTION rows the night carries, before merging. A
+        // count rather than a flag so a night with a partner and none of these
+        // reads as 0, not as "no partner".
+        @JsonProperty("partner_motion_events") public Integer partnerMotionEvents;
         @JsonProperty("sleep_duration_mins") public Integer totalSleepMins;
         @JsonProperty("sound_sleep_mins")    public Integer soundSleepMins;
         @JsonProperty("light_sleep_mins")    public Integer lightSleepMins;

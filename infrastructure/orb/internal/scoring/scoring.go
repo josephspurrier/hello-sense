@@ -81,6 +81,9 @@ func (s *Scorer) ScoreNight(ctx context.Context, accountID int64, date time.Time
 		Sensors:  []timeline.Sensor{},
 		Motion:   []timeline.Motion{},
 		Feedback: []timeline.Feedback{},
+
+		PartnerAccountID: night.PartnerID,
+		PartnerMotion:    []timeline.Motion{},
 	}
 	for _, s := range night.Sensors {
 		req.Sensors = append(req.Sensors, timeline.Sensor{
@@ -94,6 +97,12 @@ func (s *Scorer) ScoreNight(ctx context.Context, accountID int64, date time.Time
 	}
 	for _, m := range night.Motion {
 		req.Motion = append(req.Motion, timeline.Motion{
+			TS: m.TS, SVMNoGravity: m.SVMNoGravity, MotionRange: m.MotionRange,
+			KickoffCounts: m.KickoffCounts, OnDurationSecs: m.OnDurationSecs,
+		})
+	}
+	for _, m := range night.PartnerMotion {
+		req.PartnerMotion = append(req.PartnerMotion, timeline.Motion{
 			TS: m.TS, SVMNoGravity: m.SVMNoGravity, MotionRange: m.MotionRange,
 			KickoffCounts: m.KickoffCounts, OnDurationSecs: m.OnDurationSecs,
 		})
@@ -127,6 +136,7 @@ func (s *Scorer) ScoreNight(ctx context.Context, accountID int64, date time.Time
 		"account", accountID, "date", date.Format(time.DateOnly),
 		"algorithm", res.Algorithm, "score", derefInt32(res.SleepScore),
 		"sensors", len(night.Sensors), "motion", len(night.Motion),
+		"partner_motion", len(night.PartnerMotion),
 		"feedback", len(night.Feedback))
 
 	s.checkFeedbackApplied(accountID, date, night.OffsetMS, night.Feedback, res)

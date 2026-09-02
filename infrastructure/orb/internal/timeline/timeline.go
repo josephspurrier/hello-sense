@@ -51,6 +51,13 @@ type Request struct {
 	Motion   []Motion   `json:"motion"`
 	Feedback []Feedback `json:"feedback"`
 
+	// PartnerAccountID and PartnerMotion are the bed partner's pill samples
+	// over the same window, empty when the account has no partner. The far
+	// side uses them for partner-motion events on the timeline; the
+	// reference's partner filters, which rewrite Motion, are not applied.
+	PartnerAccountID int64    `json:"partner_account_id,omitempty"`
+	PartnerMotion    []Motion `json:"partner_motion"`
+
 	// Age in whole years at the night's date, for the sleep duration score.
 	// Zero means unknown; the score reads it as an adult, which is what the
 	// reference does for an account with no birthdate.

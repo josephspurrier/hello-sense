@@ -64,6 +64,8 @@ func main() {
 		// every utterance with canned audio and never transcribes.
 		voiceSTT = flag.String("voice-stt", os.Getenv("ORB_VOICE_STT_URL"), "speech-to-text sidecar URL; empty disables transcription")
 		voiceTTS = flag.String("voice-tts", os.Getenv("ORB_VOICE_TTS_URL"), "text-to-speech sidecar URL; empty disables synthesis")
+		voiceTTSStream = flag.String("voice-tts-stream", os.Getenv("ORB_VOICE_TTS_STREAM_URL"),
+			"streaming TTS sidecar URL; when set, replies stream fragment by fragment for faster first audio")
 
 		// Apple push. All four are required together; with any missing, push is
 		// simply off. Defaults come from the environment so the signing key's
@@ -94,7 +96,7 @@ func main() {
 
 	h := edge.New(st, log)
 	h.ReadOnly = *shadow
-	h.Synth = speech.NewSynth(*voiceSTT, *voiceTTS)
+	h.Synth = speech.NewSynth(*voiceSTT, *voiceTTS, *voiceTTSStream)
 	if h.Synth.Available() {
 		log.Info("voice pipeline enabled", "stt", *voiceSTT, "tts", *voiceTTS)
 	} else {

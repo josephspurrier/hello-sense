@@ -66,10 +66,13 @@ var eventNames = map[string]string{
 	"NONE":         "IN_BED",
 	"MOTION":       "GENERIC_MOTION",
 	"SLEEP_MOTION": "GENERIC_MOTION",
-	"LIGHTS_OUT":   "LIGHTS_OUT",
-	"LIGHT":        "LIGHT",
-	"NOISE":        "GENERIC_SOUND",
-	"SOUND":        "GENERIC_SOUND",
+	// A minute where the partner moved a lot and this sleeper did not, which
+	// the reference marks so the app can say whose restlessness it was.
+	"PARTNER_MOTION": "PARTNER_MOTION",
+	"LIGHTS_OUT":     "LIGHTS_OUT",
+	"LIGHT":          "LIGHT",
+	"NOISE":          "GENERIC_SOUND",
+	"SOUND":          "GENERIC_SOUND",
 }
 
 // eventMessages is the sentence shown against each event.
@@ -116,7 +119,7 @@ func validActions(eventType string) []string {
 	switch eventType {
 	case "GOT_IN_BED", "FELL_ASLEEP", "WOKE_UP", "GOT_OUT_OF_BED":
 		return []string{"ADJUST_TIME", "VERIFY", "INCORRECT"}
-	case "LIGHTS_OUT", "GENERIC_SOUND", "GENERIC_MOTION":
+	case "LIGHTS_OUT", "GENERIC_SOUND", "GENERIC_MOTION", "PARTNER_MOTION":
 		return []string{"VERIFY", "INCORRECT"}
 	default:
 		return []string{}

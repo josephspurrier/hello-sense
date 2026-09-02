@@ -4,6 +4,7 @@ import com.hello.suripu.core.algorithmintegration.OneDaysSensorData;
 import com.hello.suripu.core.models.AgitatedSleep;
 import com.hello.suripu.core.models.Event;
 import com.hello.suripu.core.models.Events.MotionEvent;
+import com.hello.suripu.core.models.Events.PartnerMotionEvent;
 import com.hello.suripu.core.models.Insight;
 import com.hello.suripu.core.models.MotionFrequency;
 import com.hello.suripu.core.models.MotionScore;
@@ -14,6 +15,7 @@ import com.hello.suripu.core.models.SleepScore;
 import com.hello.suripu.core.models.SleepSegment;
 import com.hello.suripu.core.models.SleepStats;
 import com.hello.suripu.core.models.TrackerMotion;
+import com.hello.suripu.core.processors.PartnerMotion;
 import com.hello.suripu.core.util.SleepScoreUtils;
 import com.hello.suripu.core.util.TimeZoneOffsetMap;
 import com.hello.suripu.core.util.TimelineRefactored;
@@ -22,6 +24,7 @@ import org.joda.time.DateTime;
 import org.joda.time.DateTimeZone;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -141,6 +144,17 @@ public final class Timeline {
             }
         }
 
+        // Partner motion, between light and sound as in the reference. A
+        // minute where the partner moved a lot and this sleeper barely did,
+        // after two still minutes, becomes a PARTNER_MOTION row in place of
+        // the motion row: the app then says whose restlessness it was.
+        final List<PartnerMotionEvent> partnerEvents = partnerMotionEvents(utils, motionEvents,
+                data.oneDaysPartnerMotion.processedtrackerMotions, sleepEvent, wakeEvent);
+        for (final Event e : partnerEvents) {
+            byTime.put(e.getStartTimestamp(), e);
+        }
+        out.partnerMotionEvents = partnerEvents.size();
+
         // Sound events are timeline rows AND the input to the environment
         // score, so they have to be generated even on a night the app would
         // show none: numSoundEvents feeds calculateSoundScore either way.
@@ -213,9 +227,44 @@ public final class Timeline {
                     - mainEvents.get(Event.Type.IN_BED).getStartTimestamp()) / 60000L);
         }
 
-        final int environmentScore = environmentScore(data, stats, soundEvents.size());
+        final Optional<Integer> environmentScore = environmentScore(data, stats, soundEvents.size());
+        out.environmentScore = environmentScore.orNull();
         out.sleepScore = score(data, stats, ageYears, environmentScore);
         conditions(out, utils, data, stats, soundEvents.size());
+    }
+
+    /**
+     * The partner-motion rows. InstrumentedTimelineProcessorV3.getPartnerMotionEvents.
+     *
+     * Only the partner's samples between this sleeper's fall-asleep and wake-up
+     * are considered, and they are turned into motion events with the same
+     * depth scaling as the sleeper's own before PartnerMotion compares the two.
+     * The threshold argument is 0 there as in the reference, which uses its
+     * own depth constants and ignores it.
+     */
+    private static List<PartnerMotionEvent> partnerMotionEvents(final TimelineUtils utils,
+                                                               final List<MotionEvent> motionEvents,
+                                                               final List<TrackerMotion> partnerMotions,
+                                                               final Event sleepEvent,
+                                                               final Event wakeEvent) {
+        if (sleepEvent == null || wakeEvent == null
+                || motionEvents.isEmpty() || partnerMotions.isEmpty()) {
+            return Collections.emptyList();
+        }
+        final long t1 = sleepEvent.getStartTimestamp();
+        final long t2 = wakeEvent.getStartTimestamp();
+        final List<TrackerMotion> within = new ArrayList<>();
+        for (final TrackerMotion pm : partnerMotions) {
+            if (pm.timestamp >= t1 && pm.timestamp <= t2) {
+                within.add(pm);
+            }
+        }
+        if (within.isEmpty()) {
+            return Collections.emptyList();
+        }
+        final SleepPeriod.Period period = motionEvents.get(0).getSleepPeriod();
+        final List<MotionEvent> partnerMotionEvents = utils.generateMotionEvents(within, period);
+        return PartnerMotion.getPartnerData(partnerMotionEvents, motionEvents, 0);
     }
 
     /**
@@ -262,13 +311,33 @@ public final class Timeline {
     }
 
     /**
-     * The 0-100 environment score, one fifth from each of five sensors.
+     * The 0-100 environment score, one fifth from each of five sensors, or
+     * absent when the night has no room data to score.
+     *
+     * Absent means not one real sensor reading fell between fall-asleep and
+     * wake-up. That is what a Sense that was unplugged for the night looks
+     * like, and the reference scores it wrong either way:
+     *
+     *  - With rows elsewhere in the night, the window is a run of -1 fill
+     *    (Mapping.MISSING_DATA_DEFAULT_VALUE). The averages come out -1, which
+     *    reads as an ALERT-cold, ALERT-dry room with ideal light and dust: an
+     *    environment score of 80 for a room nobody measured.
+     *  - With no rows at all, there is no series, the averages are 0/0, NaN
+     *    fails every threshold, and every sensor scores IDEAL: 100.
+     *
+     * Absent is returned instead and the caller drops the term. A night with
+     * SOME real readings in the window is scored from what it has, as the
+     * reference does. The pill can reach a Sense in another room over ANT, so
+     * the room data here is only ever this account's own Sense.
      */
-    private static int environmentScore(final OneDaysSensorData data,
-                                        final SleepStats stats,
-                                        final int numSoundEvents) {
+    private static Optional<Integer> environmentScore(final OneDaysSensorData data,
+                                                      final SleepStats stats,
+                                                      final int numSoundEvents) {
         if (!ENVIRONMENT_IN_SCORE || stats.sleepTime <= 0L || stats.wakeTime <= 0L) {
-            return 100;
+            return Optional.of(100);
+        }
+        if (!hasSamplesInWindow(data, stats.sleepTime, stats.wakeTime)) {
+            return Optional.absent();
         }
         final int sound = SleepScoreUtils.calculateSoundScore(numSoundEvents);
         final int temperature = SleepScoreUtils.calculateTemperatureScore(
@@ -279,8 +348,49 @@ public final class Timeline {
                 data.allSensorSampleList.get(Sensor.LIGHT), stats.sleepTime, stats.wakeTime);
         final int particulates = SleepScoreUtils.calculateParticulateScore(
                 data.allSensorSampleList.get(Sensor.PARTICULATES), stats.sleepTime, stats.wakeTime);
-        return SleepScoreUtils.calculateAggregateEnvironmentScore(
-                sound, temperature, humidity, light, particulates);
+        return Optional.of(SleepScoreUtils.calculateAggregateEnvironmentScore(
+                sound, temperature, humidity, light, particulates));
+    }
+
+    /**
+     * Whether any of the scored sensors has a REAL reading inside the sleep
+     * window. The series is dense, so presence alone means nothing: a filled
+     * minute carries the -1 sentinel and is skipped here. Sound is left out on
+     * purpose: it is counted as events, not sampled, and with no sensor rows
+     * there are no events either.
+     */
+    private static boolean hasSamplesInWindow(final OneDaysSensorData data,
+                                              final long sleepTime,
+                                              final long wakeTime) {
+        for (final Sensor sensor : new Sensor[] {
+                Sensor.TEMPERATURE, Sensor.HUMIDITY, Sensor.LIGHT, Sensor.PARTICULATES}) {
+            final List<Sample> samples = data.allSensorSampleList.get(sensor);
+            if (samples == null) {
+                continue;
+            }
+            for (final Sample sample : samples) {
+                if (sample.dateTime >= sleepTime && sample.dateTime <= wakeTime
+                        && sample.value != Mapping.MISSING_DATA_DEFAULT_VALUE) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * v5 with the environment term removed: duration carries the whole score.
+     *
+     * Used when the night has no room data. Scaling duration to 1.0 rather
+     * than leaving it at 0.8 keeps the score on the same 0-100 scale as a
+     * night that has room data, so a missing Sense neither caps nor pads it.
+     */
+    private static final class DurationOnlyWeighting extends SleepScore.Weighting {
+        DurationOnlyWeighting() {
+            this.motion = 0.0f;
+            this.duration = 1.0f;
+            this.environmental = 0.0f;
+        }
     }
 
     /**
@@ -296,11 +406,15 @@ public final class Timeline {
      * nights round(0.8 * duration + 0.2 * environment) reproduced 65, 76, 85
      * and 76 exactly. Note that the motion score carries weight 0.0 in v5, so
      * it is computed for the record and does not move the result.
+     *
+     * An absent environment score (no room data for the night) drops the
+     * environment term: the result is the duration score alone, rather than
+     * the reference's 0.8 * duration + 0.2 * 100.
      */
     private static int score(final OneDaysSensorData data,
                              final SleepStats stats,
                              final int ageYears,
-                             final int environmentScore) {
+                             final Optional<Integer> environmentScore) {
 
         final List<TrackerMotion> processed = data.oneDaysTrackerMotion.processedtrackerMotions;
         final List<TrackerMotion> original = data.oneDaysTrackerMotion.filteredOriginalTrackerMotions;
@@ -336,8 +450,10 @@ public final class Timeline {
         return new SleepScore.Builder()
                 .withMotionScore(motionScore)
                 .withSleepDurationScore(durationV5)
-                .withEnvironmentalScore(environmentScore)
-                .withWeighting(new SleepScore.DurationWeightingV5())
+                .withEnvironmentalScore(environmentScore.or(0))
+                .withWeighting(environmentScore.isPresent()
+                        ? new SleepScore.DurationWeightingV5()
+                        : new DurationOnlyWeighting())
                 .withTimesAwakePenaltyScore(0)
                 .withVersion("v5")
                 .build()
@@ -362,6 +478,14 @@ public final class Timeline {
                                    final OneDaysSensorData data,
                                    final SleepStats stats,
                                    final int numSoundEvents) {
+
+        // No real readings in the sleep window means no conditions, the same
+        // as the reference's no-series path. Left in, the -1 fill would draw
+        // ALERT dots for temperature and humidity in a room nobody measured,
+        // and the app draws however many arrive (orb api/timeline.go).
+        if (!hasSamplesInWindow(data, stats.sleepTime, stats.wakeTime)) {
+            return;
+        }
 
         final List<Insight> insights = utils.generateInSleepInsights(
                 data.allSensorSampleList, numSoundEvents, stats.sleepTime, stats.wakeTime);

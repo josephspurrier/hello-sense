@@ -113,6 +113,9 @@ services:
       # every utterance with canned audio instead of transcribing.
       ORB_VOICE_STT_URL: ${ORB_VOICE_STT_URL:-http://voice:8090/stt}
       ORB_VOICE_TTS_URL: ${ORB_VOICE_TTS_URL:-http://voice:8090/tts}
+      # When set, voice replies stream fragment by fragment for faster first
+      # audio (the device plays progressively). Empty = whole-reply synthesis.
+      ORB_VOICE_TTS_STREAM_URL: ${ORB_VOICE_TTS_STREAM_URL:-}
     # -api-fallback is deliberately absent. It used to forward unimplemented
     # app API paths to suripu-app; orb now answers everything and suripu-app is
     # gone, so a fallback would only mask a missing route.
@@ -175,6 +178,16 @@ services:
       context: ./voice
     image: ${COMPOSE_PROJECT_NAME:-hello-orb}/voice:latest
     restart: unless-stopped
+    environment:
+      # Which TTS speaks: piper (lessac-medium) or kokoro (VOICE_TTS_VOICE,
+      # a Kokoro voice name or blend spec like "af_heart:3,bf_emma:1"). Both
+      # engines are in the image, so flipping this is only a restart.
+      TTS_ENGINE: ${VOICE_TTS_ENGINE:-piper}
+      TTS_VOICE: ${VOICE_TTS_VOICE:-af_heart}
+      # Whisper model for STT: tiny.en (~2x faster) or base.en (more robust).
+      STT_MODEL: ${VOICE_STT_MODEL:-base.en}
+      # TTS reply cache; set 0 only to measure true synthesis latency.
+      TTS_CACHE: ${VOICE_TTS_CACHE:-1}
     # No ports: reachable only as http://voice:8090 from orb.
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]

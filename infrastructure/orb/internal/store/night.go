@@ -107,6 +107,14 @@ type NightData struct {
 	Motion     []MotionReading
 	Feedback   []Feedback
 
+	// PartnerID and PartnerMotion are the bed partner's account and pill
+	// samples over the same window, when the account has a partner
+	// (account_partners). Zero and empty otherwise. The algorithms use them to
+	// mark minutes where the partner moved and this account did not, and the
+	// reference's partner filters need them as input.
+	PartnerID     int64
+	PartnerMotion []MotionReading
+
 	// Age in whole years on the night, for the sleep duration score. Zero when
 	// the account has no birthdate, which the score reads as an adult.
 	Age int32
@@ -190,26 +198,23 @@ func (s *Store) LoadNight(ctx context.Context, accountID int64, date time.Time) 
 		return out, err
 	}
 
-	motionRows, err := s.pool.Query(ctx, `
-		SELECT ts, offset_ms, svm_no_gravity, motion_range, kickoff_counts, on_duration_secs
-		FROM pill_samples
-		WHERE account_id = $1 AND ts >= $2 AND ts < $3
-		ORDER BY ts`, accountID, out.Start, out.End)
+	out.Motion, err = s.motionInWindow(ctx, accountID, out.Start, out.End)
 	if err != nil {
-		return out, fmt.Errorf("store: night motion: %w", err)
+		return out, err
 	}
-	for motionRows.Next() {
-		var r MotionReading
-		if err := motionRows.Scan(&r.TS, &r.OffsetMS, &r.SVMNoGravity, &r.MotionRange,
-			&r.KickoffCounts, &r.OnDurationSecs); err != nil {
-			motionRows.Close()
+
+	// The partner's motion over the SAME window, in this account's offset. The
+	// reference reads the partner's pill by the account's own local window
+	// (getPartnerTrackerMotion), which is what makes the two series line up
+	// minute for minute.
+	if partner, ok, err := s.PartnerOf(ctx, accountID); err != nil {
+		return out, err
+	} else if ok {
+		out.PartnerID = partner.AccountID
+		out.PartnerMotion, err = s.motionInWindow(ctx, partner.AccountID, out.Start, out.End)
+		if err != nil {
 			return out, err
 		}
-		out.Motion = append(out.Motion, r)
-	}
-	motionRows.Close()
-	if err := motionRows.Err(); err != nil {
-		return out, err
 	}
 
 	// Feedback is keyed by date_of_night, not by timestamp, so it is fetched by
@@ -231,6 +236,29 @@ func (s *Store) LoadNight(ctx context.Context, accountID int64, date time.Time) 
 		out.Feedback = append(out.Feedback, f)
 	}
 	return out, fbRows.Err()
+}
+
+// motionInWindow is one account's pill samples over a window, oldest first.
+func (s *Store) motionInWindow(ctx context.Context, accountID int64, start, end time.Time) ([]MotionReading, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT ts, offset_ms, svm_no_gravity, motion_range, kickoff_counts, on_duration_secs
+		FROM pill_samples
+		WHERE account_id = $1 AND ts >= $2 AND ts < $3
+		ORDER BY ts`, accountID, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("store: night motion: %w", err)
+	}
+	defer rows.Close()
+	var out []MotionReading
+	for rows.Next() {
+		var r MotionReading
+		if err := rows.Scan(&r.TS, &r.OffsetMS, &r.SVMNoGravity, &r.MotionRange,
+			&r.KickoffCounts, &r.OnDurationSecs); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // NightsNeedingTimeline lists account/date pairs that have motion data but no

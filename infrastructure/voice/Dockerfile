@@ -17,9 +17,18 @@ RUN mkdir -p /models \
     && wget -qO /models/voice.onnx.json \
        https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
 
+# Kokoro voice model (~310 MB) plus its style-embedding bank (~27 MB), for
+# TTS_ENGINE=kokoro. Both engines are baked in so the toggle is a restart,
+# not a rebuild.
+RUN wget -qO /models/kokoro-v1.0.onnx \
+       https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx \
+    && wget -qO /models/voices-v1.0.bin \
+       https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
+
 # Pre-download the Whisper weights into the image so the first request is fast
-# and the container needs no network at runtime.
-RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base.en', device='cpu', compute_type='int8')"
+# and the container needs no network at runtime. Both sizes are baked in so
+# the STT_MODEL toggle is a restart, not a rebuild.
+RUN python -c "from faster_whisper import WhisperModel; WhisperModel('base.en', device='cpu', compute_type='int8'); WhisperModel('tiny.en', device='cpu', compute_type='int8')"
 
 COPY app.py /app/app.py
 WORKDIR /app

@@ -134,6 +134,7 @@ public final class Server {
                 + " binned=" + data.allSensorSampleList.get(
                         com.hello.suripu.core.models.Sensor.LIGHT).size()
                 + " motion=" + data.oneDaysTrackerMotion.processedtrackerMotions.size()
+                + " partner_motion=" + data.oneDaysPartnerMotion.processedtrackerMotions.size()
                 + " light=" + describe(data.allSensorSampleList.get(
                         com.hello.suripu.core.models.Sensor.LIGHT))
                 + " sound=" + describe(data.allSensorSampleList.get(

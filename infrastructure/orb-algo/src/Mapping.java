@@ -57,7 +57,7 @@ public final class Mapping {
     private static final int SLOT_DURATION_MINUTES = 1;
 
     /** What suripu writes into a minute it has no reading for. */
-    private static final float MISSING_DATA_DEFAULT_VALUE = -1.0f;
+    static final float MISSING_DATA_DEFAULT_VALUE = -1.0f;
 
     // Deliberately no firmware version.
     //
@@ -333,9 +333,11 @@ public final class Mapping {
         return new OneDaysSensorData(
                 sensors(req.sensors, offset, startUTC, endUTC, calibration(req)),
                 motion(req.motion, req.accountId, offset),
-                // No partner: this is a single-person deployment, and an empty
-                // list is what the partner filter expects when there is none.
-                new OneDaysTrackerMotion(ImmutableList.<TrackerMotion>of()),
+                // The partner's motion goes through the same truncation and
+                // offset as the sleeper's own, so the two series line up by the
+                // minute. Empty when there is no partner, which is also what
+                // every partner-aware step treats as "no partner".
+                motion(req.partnerMotion, req.partnerAccountId, offset),
                 feedback(req.feedback, night, req.accountId),
                 night, startLocalUTC, endLocalUTC,
                 DateTime.now(DateTimeZone.UTC),

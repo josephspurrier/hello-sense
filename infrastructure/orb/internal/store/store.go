@@ -188,6 +188,16 @@ type PillSample struct {
 	MotionRange    *int64
 	KickoffCounts  *int32
 	OnDurationSecs *int32
+
+	// CosTheta and MotionMask come only from the 1.5 pill's v4 payload and are
+	// nil for older pills. The mask is one bit per second of the minute. It is
+	// stored because the reference's motion-mask partner filter needs it from
+	// both pills, and it cannot be recovered later.
+	CosTheta   *int64
+	MotionMask *int64
+
+	// RelayedBy is the Sense that uploaded this sample. Empty when unknown.
+	RelayedBy string
 }
 
 func (s *Store) InsertPillSamples(ctx context.Context, samples []PillSample) (int, error) {
@@ -198,11 +208,13 @@ func (s *Store) InsertPillSamples(ctx context.Context, samples []PillSample) (in
 	for _, m := range samples {
 		batch.Queue(`
 			INSERT INTO pill_samples (pill_id, ts, account_id, offset_ms,
-				svm_no_gravity, motion_range, kickoff_counts, on_duration_secs)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+				svm_no_gravity, motion_range, kickoff_counts, on_duration_secs,
+				cos_theta, motion_mask, relayed_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NULLIF($11,''))
 			ON CONFLICT (pill_id, ts) DO NOTHING`,
 			m.PillID, m.TS, m.AccountID, m.OffsetMS,
-			m.SVMNoGravity, m.MotionRange, m.KickoffCounts, m.OnDurationSecs)
+			m.SVMNoGravity, m.MotionRange, m.KickoffCounts, m.OnDurationSecs,
+			m.CosTheta, m.MotionMask, m.RelayedBy)
 	}
 	res := s.pool.SendBatch(ctx, batch)
 	defer res.Close()

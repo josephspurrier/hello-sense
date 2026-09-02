@@ -414,3 +414,51 @@ crash-looping on `ResourceNotFoundException` ever since. Nobody noticed, because
 outside.** Recreated 2026-08-16; it takes its lease and idles as intended. A
 component whose correct behaviour is silence needs its liveness checked some
 other way.
+
+## Partners, and which Sense heard the pill (2026-09-01)
+
+Pills broadcast over ANT and every Sense in range relays what it hears. The
+Sense firmware queues every pill packet the top board hands it (kitsune
+`ble_proto.c`, the PILL_DATA case, no paired-pill check) and orb routes each
+sample by pill id to `account_pills`, never looking at the relaying Sense. So a
+partner whose own Sense is unplugged still gets a score, as long as their pill
+is within ANT range of any Sense on this backend. Room data does NOT travel
+that way: `sensor_samples` for an account come only from its own active Sense.
+
+Three things were added on top of that:
+
+- **An explicit partner link**, `account_partners`, stored symmetrically. The
+  reference inferred a partner as "the other account on my Sense"; here two
+  people can share a bed and each keep their own Sense in the room. Set it by
+  hand (no app screen calls it):
+
+  ```
+  curl -X PUT -H "Authorization: Bearer <app_id>.<token hex>" \
+       -d '{"email":"partner@example.com"}' https://<host>/v1/account/partner
+  ```
+
+  `GET` shows it, `DELETE` unlinks both sides. `LoadNight` then loads the
+  partner's pill samples over the same window and sends them as
+  `partner_motion`; orb-algo turns minutes where the partner moved a lot and
+  the sleeper did not into `PARTNER_MOTION` rows (the reference's
+  `getPartnerMotionEvents` + `PartnerMotion.getPartnerData`). Display only: the
+  score, sleep and wake times are unchanged by it (verified by replaying the
+  same night with and without). The reference's partner FILTERS, which rewrite
+  the sleeper's own motion before scoring, are not run.
+- **`pill_samples.relayed_by`**: the Sense that uploaded the sample, so two
+  Senses in one room can be compared on which pill each hears. Null on rows
+  from before the column existed.
+- **`cos_theta` and `motion_mask`** are now stored for v4 (1.5 pill) samples.
+  orb decoded them all along and dropped them; the motion-mask partner filter
+  needs them from both pills, and they cannot be backfilled.
+
+A night with no real room reading inside the sleep window is scored on
+duration alone (orb-algo `Timeline.environmentScore` returns absent, weighting
+1.0 on duration), with no condition dots. Before this, the -1 fill for missing
+minutes scored an unplugged Sense as an ALERT-cold, ALERT-dry room. The result
+JSON carries `environment_score`, null in that case.
+
+To replay a night against orb-algo without touching stored data, use
+`~/replay_night.py <account> <date> [algorithm|-] [asof]` on the VM
+(`NO_PARTNER=1` drops the partner motion). It rebuilds the request the way
+`LoadNight` does and posts it to the service.
