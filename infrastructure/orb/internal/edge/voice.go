@@ -1,6 +1,8 @@
 package edge
 
 import (
+	"os"
+	"path/filepath"
 	"context"
 	"fmt"
 	"io"
@@ -85,6 +87,16 @@ func (h *Handler) uploadAudio(w http.ResponseWriter, r *http.Request) {
 
 	pcm := speech.DecodeADPCM(req.ADPCM)
 	wav := speech.PCMToWAV(pcm, int(req.SamplingRate))
+	// Wake-audio capture: when the export dir is enabled, keep a copy of each
+	// wake upload. This is how real-device wake-word training data is collected
+	// (the device mic hears what no offline recording reproduces). Off unless
+	// ORB_EXPORT_DIR is set, same switch as the file-export landing zone.
+	if h.ExportDir != "" {
+		name := fmt.Sprintf("wake_%s_%d.wav", deviceID, time.Now().UnixMilli())
+		if werr := os.WriteFile(filepath.Join(h.ExportDir, name), wav, 0o644); werr == nil {
+			h.log.Warn("captured wake audio", "file", name, "bytes", len(wav))
+		}
+	}
 	text, err := h.Synth.Transcribe(ctx, wav)
 	if err != nil {
 		h.log.Warn("voice transcribe failed", "device", deviceID, "err", err)
@@ -305,4 +317,26 @@ func (h *Handler) accountLocation(ctx context.Context, accountID int64) *time.Lo
 		return loc
 	}
 	return time.UTC
+}
+
+// keywordFeatures receives the wake-word net's own input: on every detection
+// the device uploads a SimpleMatrix protobuf holding the ~3 s int8 mel-feature
+// circular buffer around the keyword (audio_features_upload_task.c, rate
+// limited to 2 per 5 min). Stock backends threw this away; saved raw when the
+// export dir is enabled, it is real-device wake-word training data in exactly
+// the representation the model trains on. Decode offline with onsei's
+// matrix_pb2. Always 204: the device only needs a 2xx to stop waiting.
+func (h *Handler) keywordFeatures(w http.ResponseWriter, r *http.Request) {
+	dev, payload, err := h.authByHeader(r)
+	if err != nil {
+		h.fail(w, "keyword features auth", err, http.StatusUnauthorized)
+		return
+	}
+	if h.ExportDir != "" {
+		name := fmt.Sprintf("kwfeats_%s_%d.pb", dev.DeviceID, time.Now().UnixMilli())
+		if werr := os.WriteFile(filepath.Join(h.ExportDir, name), payload, 0o644); werr == nil {
+			h.log.Warn("captured keyword features", "file", name, "bytes", len(payload))
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

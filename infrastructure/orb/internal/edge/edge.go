@@ -119,6 +119,7 @@ func (h *Handler) Routes() http.Handler {
 	// Sense with Voice: the wake-word utterance upload (speech.hello.is) and
 	// its keepalive. The device plays back the MP3 this returns.
 	mux.HandleFunc("POST /v2/upload/audio", h.uploadAudio)
+	mux.HandleFunc("POST /v1/audio/keyword_features", h.keywordFeatures)
 	mux.HandleFunc("/v2/ping", h.voicePing)
 	// OTA images. Inert unless FirmwareDir is set; see firmware.go.
 	mux.HandleFunc("GET /firmware/{name}", h.firmware)
@@ -428,7 +429,7 @@ func (h *Handler) pillBatch(w http.ResponseWriter, r *http.Request) {
 			"version", pd.GetProtocolVersion(), "svm", m.SVMNoGravity,
 			"cos_theta", m.CosTheta, "motion_mask", fmt.Sprintf("%016x", uint64(m.MotionMask)))
 
-		samples = append(samples, store.PillSample{
+		sample := store.PillSample{
 			PillID:         pillID,
 			TS:             ts,
 			AccountID:      p.AccountID,
@@ -437,7 +438,15 @@ func (h *Handler) pillBatch(w http.ResponseWriter, r *http.Request) {
 			MotionRange:    &m.MotionRange,
 			KickoffCounts:  i32ptr(int32(m.KickoffCounts)),
 			OnDurationSecs: i32ptr(int32(m.OnDurationSecs)),
-		})
+			RelayedBy:      senseID,
+		}
+		// Only the v4 payload carries these; on older versions the decoder
+		// leaves them zero, and a stored zero would read as a measured value.
+		if pd.GetProtocolVersion() >= 4 {
+			cosTheta, mask := m.CosTheta, m.MotionMask
+			sample.CosTheta, sample.MotionMask = &cosTheta, &mask
+		}
+		samples = append(samples, sample)
 		decoded++
 		h.touchPill(ctx, pillID, now, pd)
 	}
