@@ -201,8 +201,12 @@ func (s *slot) add(r store.LatestSampleRow) {
 	}
 	sumIf(r.LuxCount, &s.sumLux, &s.nLux)
 	sumIf(r.Pressure, &s.sumPressure, &s.nPressure)
-	sumIf(r.TVOC, &s.sumTVOC, &s.nTVOC)
-	sumIf(r.CO2, &s.sumCO2, &s.nCO2)
+	if roomstate.GasReady(r.TVOC) {
+		sumIf(r.TVOC, &s.sumTVOC, &s.nTVOC)
+	}
+	if roomstate.GasReady(r.CO2) {
+		sumIf(r.CO2, &s.sumCO2, &s.nCO2)
+	}
 	sumIf(r.UVCount, &s.sumUV, &s.nUV)
 	if r.R != nil && r.G != nil && r.B != nil && r.Clear != nil {
 		s.sumR += int64(*r.R)
@@ -268,7 +272,7 @@ func (s *slot) value(sensor string) float32 {
 		if s.nUV == 0 {
 			return missingSample
 		}
-		return round1(roomstate.UVIndex(roundedMean(s.sumUV, s.nUV)))
+		return round1(float32(roundedMean(s.sumUV, s.nUV)))
 	case "LIGHT_TEMP":
 		if s.nRGB == 0 {
 			return missingSample

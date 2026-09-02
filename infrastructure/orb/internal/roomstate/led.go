@@ -74,18 +74,18 @@ type DeviceSample struct {
 // The lights-OFF condition is unaffected either way, because that path forces
 // light to IDEAL before it is ever classified.
 func Conditions(s DeviceSample, dustOffset *int32) (lightsOn, lightsOff string) {
-	temperature := Classify(Temperature(s.HardwareVersion, s.Temperature), TemperatureScale).Condition
-	humidity := Classify(Humidity(s.HardwareVersion, s.Temperature, s.Humidity), HumidityScale).Condition
+	temperature := ClassifyForLED(Temperature(s.HardwareVersion, s.Temperature), TemperatureScale).Condition
+	humidity := ClassifyForLED(Humidity(s.HardwareVersion, s.Temperature, s.Humidity), HumidityScale).Condition
 	luxCount := s.LuxCount
-	light := Classify(Lux(s.HardwareVersion, s.Light, &luxCount), LightScale).Condition
-	sound := Classify(DeviceSound(s.AudioPeakBackgroundDB, s.AudioPeakDisturbanceDB), NoiseScale).Condition
+	light := ClassifyForLED(Lux(s.HardwareVersion, s.Light, &luxCount), LightScale).Condition
+	sound := ClassifyForLED(DeviceSound(s.AudioPeakBackgroundDB, s.AudioPeakDisturbanceDB), NoiseScale).Condition
 
 	// Every modality that counts, in both variants. Dust joins only when the
 	// device's offset is known.
 	lit := []string{temperature, humidity, light, sound}
 	unlit := []string{temperature, humidity, Ideal, sound}
 	if dustOffset != nil {
-		dust := Classify(CalibratedParticulates(s.DustMax, dustOffset), ParticulatesScale).Condition
+		dust := ClassifyForLED(CalibratedParticulates(s.DustMax, dustOffset), ParticulatesScale).Condition
 		lit = append(lit, dust)
 		unlit = append(unlit, dust)
 	}

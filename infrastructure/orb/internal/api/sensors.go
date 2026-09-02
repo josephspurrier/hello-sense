@@ -191,8 +191,20 @@ func (h *Handler) getSensors(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The reference reads the sample from four hours before now (a five
+	// minute window) to say whether pressure is rising or falling.
+	var fourHoursAgo *int32
+	if roomstate.IsOneFive(sample.HWVersion) {
+		earlier, err := h.store.SamplesBetween(r.Context(), accountID,
+			time.Now().Add(-4*time.Hour), time.Now().Add(-4*time.Hour+5*time.Minute))
+		if err != nil {
+			h.log.Error("sensors pressure history", "account", accountID, "err", err)
+		} else if n := len(earlier); n > 0 {
+			fourHoursAgo = earlier[n-1].Pressure
+		}
+	}
 	writeJSON(w, http.StatusOK, SensorsResponse{
-		Sensors: sensorViews(sample, tempPref, stale), Status: "OK",
+		Sensors: sensorViews(sample, tempPref, stale, fourHoursAgo), Status: "OK",
 	})
 }
 
@@ -208,7 +220,9 @@ func (h *Handler) getSensors(w http.ResponseWriter, r *http.Request) {
 // The order is part of the app's contract, not a presentation detail. The app
 // reads this array positionally in places, and it matches the reference:
 // TEMPERATURE, HUMIDITY, LIGHT, PARTICULATES, SOUND.
-func sensorViews(sample *store.LatestSampleRow, tempPref string, stale bool) []SensorView {
+// fourHoursAgo is the pressure reading from about four hours before the
+// sample, nil when there is none; only the pressure tile reads it.
+func sensorViews(sample *store.LatestSampleRow, tempPref string, stale bool, fourHoursAgo *int32) []SensorView {
 	views := []SensorView{}
 	add := func(kind, name, unit string, value float32, scale []interval) {
 		v := SensorView{
@@ -256,19 +270,50 @@ func sensorViews(sample *store.LatestSampleRow, tempPref string, stale bool) []S
 	// renders the rest on their own; the type and unit strings are the ones
 	// SenseKit parses (SENSensor.m). CO2 and TVOC follow PARTICULATES so the
 	// group is contiguous.
+	// Names, units and scales are suripu-app's SensorViewFactory: VOC is
+	// labelled in micrograms per cubic metre, UV is the raw count, and
+	// pressure is "one big exception": its condition is the CHANGE over the
+	// last four hours on the change bands, while the scale drawn is those
+	// bands shifted around the current reading.
 	if roomstate.IsOneFive(hw) {
+		// A gas reading that is the sensor's not-ready sentinel is shown the
+		// way a stale one is: the tile stays, with no value and UNKNOWN.
 		if sample.CO2 != nil {
-			add("CO2", "CO2", "PPM", roomstate.CO2PPM(*sample.CO2), roomstate.CO2Scale)
+			if roomstate.GasReady(sample.CO2) {
+				add("CO2", "CO2", "PPM", roomstate.CO2PPM(*sample.CO2), roomstate.CO2Scale)
+			} else {
+				views = append(views, SensorView{Type: "CO2", Name: "CO2", Unit: "PPM",
+					Condition: "UNKNOWN", Scale: publicScale(roomstate.CO2Scale)})
+			}
 		}
 		if sample.TVOC != nil {
-			add("TVOC", "Chemicals", "VOC", roomstate.TVOC(*sample.TVOC), roomstate.TVOCScale)
+			if roomstate.GasReady(sample.TVOC) {
+				add("TVOC", "VOC", "MG_CM", roomstate.TVOC(*sample.TVOC), roomstate.TVOCScale)
+			} else {
+				views = append(views, SensorView{Type: "TVOC", Name: "VOC", Unit: "MG_CM",
+					Condition: "UNKNOWN", Scale: publicScale(roomstate.TVOCScale)})
+			}
 		}
 		if sample.Pressure != nil {
-			add("PRESSURE", "Air Pressure", "MILLIBAR",
-				roomstate.PressureMillibar(*sample.Pressure), roomstate.PressureScale)
+			current := roomstate.PressureMillibar(*sample.Pressure)
+			v := SensorView{
+				Type: "PRESSURE", Name: "Barometric pressure", Unit: "MILLIBAR",
+				Value: f32(current), Scale: publicScale(roomstate.PressureScaleAround(current)),
+			}
+			if stale {
+				v.Value, v.Condition, v.Message = nil, "UNKNOWN", ""
+			} else {
+				change := float32(0)
+				if fourHoursAgo != nil {
+					change = current - roomstate.PressureMillibar(*fourHoursAgo)
+				}
+				iv := classify(change, roomstate.PressureChangeScale)
+				v.Condition, v.Message = iv.Condition, iv.Message
+			}
+			views = append(views, v)
 		}
 		if sample.UVCount != nil {
-			add("UV", "UV Light", "RATIO", roomstate.UVIndex(*sample.UVCount), roomstate.UVScale)
+			add("UV", "UV Light", "COUNT", float32(*sample.UVCount), roomstate.UVScale)
 		}
 		if sample.R != nil && sample.G != nil && sample.B != nil && sample.Clear != nil {
 			add("LIGHT_TEMP", "Light Temperature", "KELVIN",

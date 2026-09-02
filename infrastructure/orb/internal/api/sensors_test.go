@@ -159,7 +159,12 @@ func TestParticulatesBands(t *testing.T) {
 		{150, "Unhealthy", "WARNING"},
 		{200, "Very unhealthy", "ALERT"},
 		{300, "Hazardous", "ALERT"},
-		{5000, "Hazardous", "ALERT"}, // above every band, falls back to the last
+		// Past the top band, and in the 0.1 gap between two bands: matches
+		// nothing, and the reference's fromScale answers UNKNOWN for both
+		// (it logs not-in-range). An earlier version fell back to the last
+		// band, which turned a reading of 49.95 into "Hazardous".
+		{5000, "", "UNKNOWN"},
+		{49.95, "", "UNKNOWN"},
 	} {
 		iv := classify(c.value, particulatesScale)
 		if iv.Name != c.name || iv.Condition != c.condition {
@@ -193,7 +198,7 @@ func TestSensorViewsShape(t *testing.T) {
 
 	want := []string{"TEMPERATURE", "HUMIDITY", "LIGHT", "PARTICULATES", "SOUND"}
 
-	views := sensorViews(sample, "", false)
+	views := sensorViews(sample, "", false, nil)
 	got := make([]string, 0, len(views))
 	for _, v := range views {
 		got = append(got, v.Type)
@@ -226,7 +231,7 @@ func TestSensorViewsShape(t *testing.T) {
 // the app draws the gauges either way.
 func TestSensorViewsStaleKeepsAllDials(t *testing.T) {
 	sample := &store.LatestSampleRow{TS: time.Now().Add(-2 * time.Hour)}
-	views := sensorViews(sample, "", true)
+	views := sensorViews(sample, "", true, nil)
 	if len(views) != 5 {
 		t.Fatalf("stale gave %d sensors, want 5", len(views))
 	}

@@ -530,3 +530,28 @@ save_features OFF would switch those off.
 Note: `senses.firmware_version` for the orb Sense reads 4538, not the 4539
 the orientation notes claim; the 4539 offer completed but the device reports
 4538 since.
+
+### Extras on the reference's own scales, and two classifier fixes (2026-09-02)
+
+suripu-app (not suripu-core) carries the scales for the 1.5's extras
+(`app/sensors/scales`: Co2Scale, VocScale, UvScale, PressureScale), so the
+tiles now use those bands, names and units exactly: CO2 in PPM, VOC in MG_CM,
+UV as the raw COUNT, and "Barometric pressure" whose condition is the CHANGE
+over the last four hours on +/-20 and +/-40 mbar bands while the drawn scale
+is those bands shifted around the current reading. Light temperature has no
+reference scale and keeps ours. Gas sensors report 65021 in both fields for
+a couple of minutes after a reboot (a not-ready sentinel; the reference would
+clamp it to ALERT), shown as UNKNOWN instead; right after that they read at
+the floor (CO2 400, VOC 0) until the sensor warms up.
+
+Two classifier fixes found on the way. A value in the 0.1-wide gap between
+two bands (49.95 on the particulates scale) used to fall through to the LAST
+band and read "Hazardous"/ALERT; the reference's fromScale answers UNKNOWN
+and orb now does too. The LED path keeps threshold semantics
+(`ClassifyForLED`: a gap takes the band above, past the top stays in the top
+band), which is what the reference's LED-side classifiers do.
+
+The voice Sense's `dust_offset` was set to 639 on 2026-09-02 by matching its
+raw count to the orb Sense's over 36 hours in the same room (orb 512, voice
+830, both flat day and night, fan or no fan). Check-back note in CLAUDE.md
+for 2026-09-09.

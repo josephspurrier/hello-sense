@@ -26,6 +26,12 @@ const (
 	Ideal   = "IDEAL"
 	Warning = "WARNING"
 	Alert   = "ALERT"
+
+	// Unknown is what a value that falls in a gap between bands gets.
+	// SensorViewFactory.fromScale walks the intervals, finds none, logs
+	// not-in-range and returns SensorState.unknown(). The LED path treats it
+	// as nothing to report (worst() only looks for WARNING and ALERT).
+	Unknown = "UNKNOWN"
 )
 
 // Interval is one band on a sensor's scale.
@@ -53,7 +59,10 @@ func F32(v float32) *float32 { return &v }
 // runs to 9.99 then resumes at 10, so 9.995 falls in no band at all. Closing
 // the gaps would be tidier and would move the boundaries. Classify walks in
 // order and takes the first band whose bounds contain the value, which is what
-// the reference does, so a value in a gap gets the band above it.
+// the reference's app path does, and a value in a gap is UNKNOWN there. The
+// LED path is threshold-based in the reference (classifiers/classic) and has
+// no gaps and no top: ClassifyForLED gives it those semantics on the same
+// tables.
 //
 // The apostrophes are U+2019, not ASCII. They are compared byte for byte
 // against the reference.
@@ -123,6 +132,26 @@ func Classify(v float32, scale []Interval) Interval {
 			continue
 		}
 		return iv
+	}
+	// A gap between bands matches nothing and is UNKNOWN, as in the
+	// reference. An earlier version returned the LAST band here, so an
+	// air-quality reading of 49.95 came back "Hazardous"/ALERT.
+	return Interval{Condition: Unknown}
+}
+
+// ClassifyForLED classifies the way the reference's LED-side classifiers do:
+// by threshold, so a value in a gap takes the band above it and a value past
+// the last band's top stays in that band. ParticulatesClassifier, for one,
+// is ALERT for anything over its warning ceiling with no upper bound, where
+// the app's ParticulatesScale stops at 399.9.
+func ClassifyForLED(v float32, scale []Interval) Interval {
+	if iv := Classify(v, scale); iv.Condition != Unknown {
+		return iv
+	}
+	for _, iv := range scale {
+		if iv.Min != nil && v < *iv.Min {
+			return iv
+		}
 	}
 	return scale[len(scale)-1]
 }
