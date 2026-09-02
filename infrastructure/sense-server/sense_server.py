@@ -462,11 +462,24 @@ class HelloHandler(BaseHTTPRequestHandler):
 
         _log(f"  -> {label} {path} = HTTP {resp.status}, {len(payload)}B")
 
+        # The voice reply is the one response the Sense plays back by reading the
+        # socket until it closes, not until Content-Length. Kept alive (our
+        # default since the firmware-download fix), the connection stays open, so
+        # the device keeps the audio codec busy "playing" the idle socket and
+        # cannot re-open the mic to listen again until it times out ~1 minute
+        # later, which reads as the assistant going deaf between commands. Close
+        # this one connection right after the MP3 so playback ends when the audio
+        # does. Everything else keeps the keep-alive that the download reuse needs.
+        close_after = self.path.startswith("/v2/upload/audio")
+
         self.send_response(resp.status)
         for k, v in resp.getheaders():
             if k.lower() not in HOP_BY_HOP:
                 self.send_header(k, v)
         self.send_header("Content-Length", str(len(payload)))
+        if close_after:
+            self.send_header("Connection", "close")
+            self.close_connection = True
         # A firmware image is orders of magnitude larger than any other reply and
         # the Sense writes it to slow serial flash as it arrives, so it must be
         # trickled rather than written in one blast. See _finish_response_streamed.
