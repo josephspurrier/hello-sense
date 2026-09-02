@@ -60,6 +60,13 @@ mkdir -p /src/kitsune/main/ccs/exe /src/kitsune/main/ccs/Release
 echo "=== 2. compile the 106 app objects directly ==="
 cd /src/kitsune/main/ccs/Release
 source /recipe/voice_compile.inc
+# Enabling the keyword feature upload makes its trigger live, which pulls in two
+# objects the stock image dead-code-eliminated (the SimpleMatrix proto and the
+# upload helpers). Compile them only under the flag so the byte-exact stock build
+# is untouched.
+if [ -n "${KITSUNE_FEATURE_UPLOAD:-}" ]; then
+  source /recipe/voice_feature_upload_compile.inc
+fi
 echo "  compiled $(find . -name '*.obj' | wc -l) app objects"
 
 echo "=== 3. reorder-relink (voice reference order + CC3220sf.cmd + __SF_DEBUG__) ==="

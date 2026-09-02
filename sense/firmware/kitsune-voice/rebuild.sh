@@ -47,6 +47,10 @@ if [ -n "${KITSUNE_DEV_DOMAIN:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_HTTP_EXPORT_FIX:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_ENABLE_SERVERS:-}" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_KEYWORD_MODEL:-}" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_SPEECH_GAIN_FIX:-}" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_NET_RESUME_FIX:-}" ]; then CUSTOM=1; fi
+if [ -n "${KITSUNE_FEATURE_UPLOAD:-}" ]; then CUSTOM=1; fi
 if [ -n "${KITSUNE_DEV_DOMAIN:-}" ] && [ -n "${KITSUNE_PROD_DOMAIN:-}" ]; then
   echo "set one of KITSUNE_DEV_DOMAIN or KITSUNE_PROD_DOMAIN, not both" >&2; exit 1
 fi
@@ -244,10 +248,60 @@ if [ -n "${KITSUNE_ENABLE_SERVERS:-}" ]; then
   echo "   on-device telnet console (port 224) enabled"
 fi
 
+# KITSUNE_SPEECH_GAIN_FIX lifts the mic level on the wake-word speech upload.
+# The device streamed the raw mic to the server at 1-7% full scale, so
+# speech-to-text saw noise; the wake detector was unaffected because it AGCs
+# its own copy. This applies a saturating gain just before the ADPCM encoder,
+# on the upload path only. See patches/speech-gain.patch.
+if [ -n "${KITSUNE_SPEECH_GAIN_FIX:-}" ]; then
+  echo ">> applying patches/speech-gain.patch"
+  git -C "$WORK/src" apply --whitespace=nowarn "$HERE/patches/speech-gain.patch"
+  echo "   speech upload gain applied"
+fi
+
+# KITSUNE_NET_RESUME_FIX re-arms the wake word at the start of every detection
+# session. The voice path could leave the net paused (_is_net_running=0) after a
+# command, and initialize did not reset it, so the device went deaf after a few
+# interactions until a power cycle. See patches/keyword-net-resume.patch.
+if [ -n "${KITSUNE_NET_RESUME_FIX:-}" ]; then
+  echo ">> applying patches/keyword-net-resume.patch"
+  git -C "$WORK/src" apply --whitespace=nowarn "$HERE/patches/keyword-net-resume.patch"
+  echo "   keyword-net resume fix applied"
+fi
+
+# KITSUNE_FEATURE_UPLOAD enables the on-detection upload of the wake net's own
+# int8 feature window to /audio/keyword_features (real training data). Hello
+# disabled it over an upload deadlock; the patch fixes that race (stops the audio
+# task writing the circular buffer before the network task reads it) and
+# uncomments the trigger. See patches/feature-upload-enable.patch.
+if [ -n "${KITSUNE_FEATURE_UPLOAD:-}" ]; then
+  echo ">> applying patches/feature-upload-enable.patch"
+  git -C "$WORK/src" apply --whitespace=nowarn "$HERE/patches/feature-upload-enable.patch"
+  echo "   keyword feature upload enabled"
+fi
+
+
+# KITSUNE_KEYWORD_MODEL swaps the compiled-in wake-word neural net. Point it at a
+# tinytensor model_*.c (as produced by the heysense trainer's export_to_c.py); it
+# is copied into the tensor dir and keyword_net.c's NEURAL_NET_MODEL #define is
+# repointed at it. The net keeps the shipped 7-class shape, so class 1 (which the
+# okay_sense callback reads) becomes the new keyword: a drop-in wake-word change,
+# no other firmware edit. See knowledgebase/WAKE-WORD.md.
+if [ -n "${KITSUNE_KEYWORD_MODEL:-}" ]; then
+  [ -f "$KITSUNE_KEYWORD_MODEL" ] || { echo "KITSUNE_KEYWORD_MODEL not found: $KITSUNE_KEYWORD_MODEL" >&2; exit 1; }
+  echo ">> swapping wake-word model -> $(basename "$KITSUNE_KEYWORD_MODEL")"
+  cp "$KITSUNE_KEYWORD_MODEL" "$WORK/src/kitsune/tensor/model_custom_keyword.c"
+  sed -i.bak -E 's/^#define NEURAL_NET_MODEL .*/#define NEURAL_NET_MODEL "model_custom_keyword.c"/' \
+    "$WORK/src/kitsune/tensor/keyword_net.c"
+  rm -f "$WORK/src/kitsune/tensor/keyword_net.c.bak"
+  echo "   NEURAL_NET_MODEL repointed at model_custom_keyword.c"
+fi
+
 # 3. Run the full build inside the container.
 echo ">> building (headless CCS under $PLATFORM; ~30-90 min under emulation)..."
 docker run --rm --platform "$PLATFORM" \
   -e KIT_VER="$KIT_VER" -e EXPECT_SHA="$EXPECT_SHA" \
+  -e KITSUNE_FEATURE_UPLOAD="${KITSUNE_FEATURE_UPLOAD:-}" \
   -v "$WORK/src:/src" \
   -v "$HERE:/recipe:ro" \
   "$IMAGE" bash /recipe/build_in_container.sh

@@ -1,0 +1,65 @@
+diff --git a/kitsune/audio_features_upload_task.c b/kitsune/audio_features_upload_task.c
+index cd451c20..359591b7 100644
+--- a/kitsune/audio_features_upload_task.c
++++ b/kitsune/audio_features_upload_task.c
+@@ -117,6 +117,21 @@ void audio_features_upload_trigger_async_upload(const char * net_id,const char *
+ 		return;
+ 	}
+ 
++	// Nothing buffered yet (the circular buffer is created lazily on the first
++	// feature frame), so there is nothing to upload.
++	if (!_circstream) {
++		return;
++	}
++
++	// Stop the audio task writing the circular buffer BEFORE the network task can
++	// start reading it. buffer_bytes early-returns while this flag is set, and the
++	// message is only queued afterward, so the upload streams a stable, single-
++	// owner snapshot. The stock code set this flag AFTER queuing, leaving a window
++	// where both tasks touched the buffer's unsynchronised byte count at once;
++	// that corrupted the count into an unbounded read that wedged the shared
++	// network task, which is the "upload deadlock" this code was disabled for.
++	_is_waiting_for_uploading = 1;
++
+ 	memset(&netmessage,0,sizeof(netmessage));
+ 	memset(&_mat,0,sizeof(_mat));
+ 
+@@ -132,15 +147,13 @@ void audio_features_upload_trigger_async_upload(const char * net_id,const char *
+ 
+ 	if (NetworkTask_AddMessageToQueue(&netmessage) == pdFALSE) {
+ 		LOGE("audio_features_upload -- UNABLE TO ADD TO NETWORK QUEUE\r\n");
++		// Nothing was queued and net_response will not run, so release the flag
++		// here or the device would stop buffering features for good.
++		_is_waiting_for_uploading = 0;
+ 		return;
+ 	}
+ 
+ 	LOGI("audio_features_upload -- added to network queue\r\n");
+-
+-	//toggle state if adding message to queue was successful
+-	_is_waiting_for_uploading = 1;
+-
+-
+ }
+ 
+ 
+diff --git a/kitsune/tensor/keyword_net.c b/kitsune/tensor/keyword_net.c
+index 2cabff3d..c3710a04 100644
+--- a/kitsune/tensor/keyword_net.c
++++ b/kitsune/tensor/keyword_net.c
+@@ -181,9 +181,12 @@ static void feats_callback(void * p, Weight_t * feats) {
+ 					//do callback
+ 					callback_item->on_end(callback_item->context,(Keyword_t)i, callback_item->max_value);
+ 					
+-                                        //TEMPORARILY COMMENTED OUT UNTIL UPLOAD DEADLOCK SOLUTION IS IMPLEMENTED
+-					//trigger feats asynchronous upload
+-					//audio_features_upload_trigger_async_upload(NEURAL_NET_MODEL, keyword_enum_to_str((Keyword_t)i),NUM_MEL_BINS,feats_sint8);
++					// Upload the ~3s feature window around the detection for
++					// training. Safe now that the upload trigger stops the audio
++					// task writing the circular buffer before the network task
++					// reads it (see audio_features_upload_task.c); the stock build
++					// disabled this line over that very race.
++					audio_features_upload_trigger_async_upload(NEURAL_NET_MODEL, keyword_enum_to_str((Keyword_t)i),NUM_MEL_BINS,feats_sint8);
+ 
+ 					//log activation, has to be thread safe
+                     if( xSemaphoreTake(context->stats_mutex, ( TickType_t ) 5 ) == pdTRUE )  {

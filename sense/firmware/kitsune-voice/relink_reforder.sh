@@ -6,6 +6,11 @@
 set -e
 CG=/root/ti/ccsv6/tools/compiler/ti-cgt-arm_5.1.5
 OBJS=$(cat /recipe/voice_relink_objs.inc)
+# Link the two extra objects only when the feature upload is enabled (see
+# build_in_container.sh); the stock build must not link them.
+if [ -n "${KITSUNE_FEATURE_UPLOAD:-}" ]; then
+  OBJS="$OBJS /src/kitsune/main/ccs/Release/obj/audio_features_upload_task_helpers.obj /src/kitsune/main/ccs/Release/obj/simple_matrix.pb.obj"
+fi
 cd /src/kitsune/main/ccs/Release
 
 "$CG/bin/armcl" -mv7M4 --code_state=16 --float_support=vfplib --abi=eabi -me -O1 --opt_for_speed=0 --fp_mode=relaxed -g --gcc \

@@ -1,0 +1,27 @@
+diff --git a/kitsune/hlo_audio_tools.c b/kitsune/hlo_audio_tools.c
+index b6d3c32f..8e073b04 100644
+--- a/kitsune/hlo_audio_tools.c
++++ b/kitsune/hlo_audio_tools.c
+@@ -370,6 +370,22 @@ int hlo_filter_voice_command(hlo_stream_t * input, hlo_stream_t * output, void *
+ 
+ 				speech_detected_time = xTaskGetTickCount();
+ 			} else {
++				/* Lift the quiet mic before ADPCM so speech-to-text gets usable
++				 * levels. The wake net already consumed these samples above via
++				 * its own AGC, so this only affects the audio uploaded to the
++				 * server (the raw upload was 1-7% full scale and transcribed as
++				 * noise). Saturating, so a loud near-field talker clips rather
++				 * than wraps. Gain is modest and easy to retune. */
++				{
++					int _i, _n = ret / 2;
++					short * _spk = (short*)samples;
++					for (_i = 0; _i < _n; _i++) {
++						int _v = (int)_spk[_i] * 8;
++						if (_v > 32767) _v = 32767;
++						else if (_v < -32768) _v = -32768;
++						_spk[_i] = (short)_v;
++					}
++				}
+ 				adpcm_coder((short*)samples, (char*)compressed, ret / 2, &state);
+ 				ret = hlo_stream_transfer_all(INTO_STREAM, send_str,  (uint8_t*)compressed, sizeof(compressed), 4);
+ 				if( ret < 0 ) {

@@ -1,0 +1,19 @@
+diff --git a/kitsune/tensor/keyword_net.c b/kitsune/tensor/keyword_net.c
+index 2cabff3d..b5418608 100644
+--- a/kitsune/tensor/keyword_net.c
++++ b/kitsune/tensor/keyword_net.c
+@@ -217,6 +217,14 @@ void keyword_net_pause_net_operation(void) {
+ __attribute__((section(".ramcode")))
+ void keyword_net_initialize(void) {
+ 	MEMSET(&_context,0,sizeof(_context));
++	/* Start every detection session listening. The voice path pauses the net
++	 * (keyword_net_pause_net_operation) while streaming a command and resumes it
++	 * only on the path where the command word clears; an interaction that ends
++	 * any other way leaves _is_net_running stuck at 0, and because this function
++	 * did not reset it the device went permanently deaf until a power cycle
++	 * (which re-initialises the static to 1). Resetting it here re-arms the wake
++	 * word at the start of each session. */
++	_is_net_running = 1;
+ 	_context.stats_mutex = xSemaphoreCreateMutex();
+ 
+ 	_context.net = initialize_network();
