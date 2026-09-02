@@ -266,7 +266,14 @@ fi
 if [ -n "${KITSUNE_NET_RESUME_FIX:-}" ]; then
   echo ">> applying patches/keyword-net-resume.patch"
   git -C "$WORK/src" apply --whitespace=nowarn "$HERE/patches/keyword-net-resume.patch"
-  echo "   keyword-net resume fix applied"
+  # keyword-net-resume re-arms at initialize (fixes deaf-until-power-cycle);
+  # voice-command-resume re-arms right after each voice command's stream loop,
+  # which pauses the net on speech start and breaks out on every path WITHOUT a
+  # resume. Without this second patch the device is deaf for ~a minute after
+  # each command ("responds once, then ignores me, then works again").
+  echo ">> applying patches/voice-command-resume.patch"
+  git -C "$WORK/src" apply --whitespace=nowarn "$HERE/patches/voice-command-resume.patch"
+  echo "   keyword-net resume fixes applied (initialize + post-command)"
 fi
 
 # KITSUNE_FEATURE_UPLOAD enables the on-detection upload of the wake net's own
@@ -286,7 +293,7 @@ fi
 # is copied into the tensor dir and keyword_net.c's NEURAL_NET_MODEL #define is
 # repointed at it. The net keeps the shipped 7-class shape, so class 1 (which the
 # okay_sense callback reads) becomes the new keyword: a drop-in wake-word change,
-# no other firmware edit. See knowledgebase/WAKE-WORD.md.
+# no other firmware edit.
 if [ -n "${KITSUNE_KEYWORD_MODEL:-}" ]; then
   [ -f "$KITSUNE_KEYWORD_MODEL" ] || { echo "KITSUNE_KEYWORD_MODEL not found: $KITSUNE_KEYWORD_MODEL" >&2; exit 1; }
   echo ">> swapping wake-word model -> $(basename "$KITSUNE_KEYWORD_MODEL")"

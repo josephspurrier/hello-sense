@@ -1,0 +1,16 @@
+diff --git a/kitsune/hlo_audio_tools.c b/kitsune/hlo_audio_tools.c
+--- a/kitsune/hlo_audio_tools.c
++++ b/kitsune/hlo_audio_tools.c
+@@ -418,5 +418,12 @@ int hlo_filter_voice_command(hlo_stream_t * input, hlo_stream_t * output, void *
+ 	}
+ 	hlo_stream_close(input);
+ 	light_sensor_power(HIGH_POWER);
++
++	/* Re-arm the wake word after every voice command. Speech start paused the
++	 * net (keyword_net_pause_net_operation, above); the command loop then breaks
++	 * out on EVERY path without a matching resume, and the only other resume is
++	 * keyword_net_initialize (~a minute later), so the device stayed deaf between
++	 * a command and that init ("responds once, then ignores me for a minute"). */
++	keyword_net_resume_net_operation();
+
+ 	if (ret < 0) {
