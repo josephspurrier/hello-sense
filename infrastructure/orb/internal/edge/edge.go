@@ -283,6 +283,9 @@ func (h *Handler) senseBatch(w http.ResponseWriter, r *http.Request) {
 			Clear:    lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetClear),
 			LuxCount: lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetLuxCount),
 			UVCount:  lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetUvCount),
+			R:        lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetR),
+			G:        lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetG),
+			B:        lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetB),
 
 			// Absent counts are stored as 0, not NULL. suripu coerces with
 			// `hasX() ? getX() : 0` (SenseProcessorUtils.java:155). The device
@@ -922,6 +925,7 @@ func (h *Handler) syncResponse(ctx context.Context, dev store.Sense, firmwareVer
 		resp.RingTimeAck = ack
 	}
 	h.setRoomConditions(resp, dev, latest)
+	h.setAudioControl(resp, dev)
 
 	// There is no longer a "nothing to say" case. The room condition is part of
 	// every reply, exactly as it is in the reference, because the LED has to be
@@ -936,6 +940,32 @@ func (h *Handler) syncResponse(ctx context.Context, dev store.Sense, firmwareVer
 		return nil
 	}
 	return out
+}
+
+// setAudioControl tells a Sense 1.0 to keep its microphone on.
+//
+// The 1.9.2 firmware starts audio capture only when told to: a console
+// command, or a sync response carrying audio_control with capture ON
+// (wifi_cmd.c, AudioControlHelper_SetAudioControl). Nothing starts it at
+// boot. The reference put that block on EVERY sync response (ReceiveResource,
+// capture ON, feature and raw saving OFF), and until it was reproduced here
+// the orb Sense's audio fields went silent the first time it rebooted under
+// orb: stock 4513 had kept capturing from before the cutover, the 2026-08-29
+// OTA to 4514 restarted it, and every minute since carried no sound. The
+// timeline then showed no noise events and a permanently ideal sound score.
+//
+// Only capture ON is sent, and only to a Sense 1.0. The voice Sense's firmware
+// captures continuously for its wake word and manages its own feature
+// uploads; a capture command re-queued on every sync could restart its
+// listening, and the reference's save_features OFF would switch those
+// uploads off.
+func (h *Handler) setAudioControl(resp *syncresp.SyncResponse, dev store.Sense) {
+	if roomstate.IsOneFive(dev.HWVersion) {
+		return
+	}
+	resp.AudioControl = &syncresp.AudioControl{
+		AudioCaptureAction: syncresp.AudioControl_ON.Enum(),
+	}
 }
 
 // setRoomConditions fills in the two colours the Sense's LED uses.
@@ -963,9 +993,11 @@ func (h *Handler) setRoomConditions(resp *syncresp.SyncResponse, dev store.Sense
 	}
 
 	lightsOn, lightsOff := roomstate.Conditions(roomstate.DeviceSample{
-		Temperature: latest.GetTemperature(),
-		Humidity:    latest.GetHumidity(),
-		Light:       latest.GetLight(),
+		HardwareVersion: dev.HWVersion,
+		LuxCount:        latest.GetLightSensor().GetLuxCount(),
+		Temperature:     latest.GetTemperature(),
+		Humidity:        latest.GetHumidity(),
+		Light:           latest.GetLight(),
 		// DustMax, not Dust: the reference passes getDustMax() here while the
 		// app's dial shows the mean, so the LED answers for the worst minute.
 		DustMax:                latest.GetDustMax(),

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/josephspurrier/hello-orb/orb/internal/roomstate"
 	"github.com/josephspurrier/hello-orb/orb/internal/store"
 )
 
@@ -166,6 +167,15 @@ type slot struct {
 	maxEnergy, maxDisturb int32
 	sumDust               int64
 	dustOffset            *int32
+
+	// The device's generation and the 1.5's extras, summed over the minutes
+	// that carried them (nLux and so on count those minutes, since rows from
+	// before orb kept the extras have none).
+	hw                                          int32
+	sumLux, sumPressure, sumTVOC, sumCO2, sumUV int64
+	nLux, nPressure, nTVOC, nCO2, nUV           int
+	sumR, sumG, sumB, sumClear                  int64
+	nRGB                                        int
 }
 
 func (s *slot) add(r store.LatestSampleRow) {
@@ -181,6 +191,25 @@ func (s *slot) add(r store.LatestSampleRow) {
 	}
 	if r.AudioPeakDisturbancesDB > s.maxDisturb {
 		s.maxDisturb = r.AudioPeakDisturbancesDB
+	}
+	s.hw = r.HWVersion
+	sumIf := func(v *int32, sum *int64, n *int) {
+		if v != nil {
+			*sum += int64(*v)
+			*n++
+		}
+	}
+	sumIf(r.LuxCount, &s.sumLux, &s.nLux)
+	sumIf(r.Pressure, &s.sumPressure, &s.nPressure)
+	sumIf(r.TVOC, &s.sumTVOC, &s.nTVOC)
+	sumIf(r.CO2, &s.sumCO2, &s.nCO2)
+	sumIf(r.UVCount, &s.sumUV, &s.nUV)
+	if r.R != nil && r.G != nil && r.B != nil && r.Clear != nil {
+		s.sumR += int64(*r.R)
+		s.sumG += int64(*r.G)
+		s.sumB += int64(*r.B)
+		s.sumClear += int64(*r.Clear)
+		s.nRGB++
 	}
 	s.n++
 }
@@ -208,11 +237,44 @@ func (s *slot) value(sensor string) float32 {
 	humidity := roundedMean(s.sumHumidity, s.n)
 	switch sensor {
 	case "TEMPERATURE":
-		return round1(calibratedTemperature(temp))
+		return round1(roomstate.Temperature(s.hw, temp))
 	case "HUMIDITY":
-		return round1(calibratedHumidity(temp, humidity))
+		return round1(roomstate.Humidity(s.hw, temp, humidity))
 	case "LIGHT":
+		if roomstate.IsOneFive(s.hw) {
+			if s.nLux == 0 {
+				return missingSample
+			}
+			lux := roundedMean(s.sumLux, s.nLux)
+			return round1(roomstate.Lux(s.hw, 0, &lux))
+		}
 		return round1(calibratedLux(roundedMean(s.sumLight, s.n)))
+	case "CO2":
+		if s.nCO2 == 0 {
+			return missingSample
+		}
+		return round1(roomstate.CO2PPM(roundedMean(s.sumCO2, s.nCO2)))
+	case "TVOC":
+		if s.nTVOC == 0 {
+			return missingSample
+		}
+		return round1(roomstate.TVOC(roundedMean(s.sumTVOC, s.nTVOC)))
+	case "PRESSURE":
+		if s.nPressure == 0 {
+			return missingSample
+		}
+		return round1(roomstate.PressureMillibar(roundedMean(s.sumPressure, s.nPressure)))
+	case "UV":
+		if s.nUV == 0 {
+			return missingSample
+		}
+		return round1(roomstate.UVIndex(roundedMean(s.sumUV, s.nUV)))
+	case "LIGHT_TEMP":
+		if s.nRGB == 0 {
+			return missingSample
+		}
+		return round1(roomstate.LightTemperatureKelvin(roundedMean(s.sumR, s.nRGB),
+			roundedMean(s.sumG, s.nRGB), roundedMean(s.sumB, s.nRGB), roundedMean(s.sumClear, s.nRGB)))
 	case "PARTICULATES":
 		// Rounded mean, matching the reference's aggregation for the raw dust
 		// column. Averaged as counts and converted once, not converted per

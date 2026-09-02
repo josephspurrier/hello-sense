@@ -199,6 +199,18 @@ type LatestSampleRow struct {
 	// the same as an offset of zero: zero derives a delta of +300, while no
 	// calibration means no delta at all.
 	DustOffset *int32
+
+	// HWVersion of the Sense that took the sample (1 original, 4 the 1.5, 0
+	// unknown), and the 1.5's extra readings, nil on a 1.0 and on 1.5 rows
+	// stored before orb kept them. See roomstate/onefive.go.
+	HWVersion int32
+	LuxCount  *int32
+	Pressure  *int32
+	TVOC      *int32
+	CO2       *int32
+	UVCount   *int32
+	R, G, B   *int32
+	Clear     *int32
 }
 
 // LatestSample returns the newest sample from any Sense paired to the account,
@@ -213,7 +225,10 @@ func (s *Store) LatestSample(ctx context.Context, accountID int64) (*LatestSampl
 		SELECT ss.ts, COALESCE(ss.temperature,0), COALESCE(ss.humidity,0),
 		       COALESCE(ss.light,0), COALESCE(ss.audio_peak_energy_db,0),
 		       COALESCE(ss.audio_peak_disturbances_db,0),
-		       COALESCE(ss.air_quality_raw,0), s.dust_offset
+		       COALESCE(ss.air_quality_raw,0), s.dust_offset,
+		       COALESCE(NULLIF(s.hw_version, '')::int, 0),
+		       ss.lux_count, ss.pressure, ss.tvoc, ss.co2, ss.uv_count,
+		       ss.r, ss.g, ss.b, ss.clear
 		FROM sensor_samples ss
 		JOIN account_senses a ON a.device_id = ss.device_id
 		JOIN senses s ON s.device_id = ss.device_id
@@ -221,7 +236,9 @@ func (s *Store) LatestSample(ctx context.Context, accountID int64) (*LatestSampl
 		ORDER BY ss.ts DESC
 		LIMIT 1`, accountID).Scan(&r.TS, &r.Temperature, &r.Humidity, &r.Light,
 		&r.AudioPeakEnergyDB, &r.AudioPeakDisturbancesDB,
-		&r.AirQualityRaw, &r.DustOffset)
+		&r.AirQualityRaw, &r.DustOffset, &r.HWVersion,
+		&r.LuxCount, &r.Pressure, &r.TVOC, &r.CO2, &r.UVCount,
+		&r.R, &r.G, &r.B, &r.Clear)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -725,7 +742,10 @@ func (s *Store) SamplesBetween(ctx context.Context, accountID int64, start, end 
 		SELECT ss.ts, COALESCE(ss.temperature,0), COALESCE(ss.humidity,0),
 		       COALESCE(ss.light,0), COALESCE(ss.audio_peak_energy_db,0),
 		       COALESCE(ss.audio_peak_disturbances_db,0),
-		       COALESCE(ss.air_quality_raw,0), s.dust_offset
+		       COALESCE(ss.air_quality_raw,0), s.dust_offset,
+		       COALESCE(NULLIF(s.hw_version, '')::int, 0),
+		       ss.lux_count, ss.pressure, ss.tvoc, ss.co2, ss.uv_count,
+		       ss.r, ss.g, ss.b, ss.clear
 		FROM sensor_samples ss
 		JOIN account_senses a ON a.device_id = ss.device_id
 		JOIN senses s ON s.device_id = ss.device_id
@@ -741,7 +761,9 @@ func (s *Store) SamplesBetween(ctx context.Context, accountID int64, start, end 
 		var r LatestSampleRow
 		if err := rows.Scan(&r.TS, &r.Temperature, &r.Humidity, &r.Light,
 			&r.AudioPeakEnergyDB, &r.AudioPeakDisturbancesDB,
-			&r.AirQualityRaw, &r.DustOffset); err != nil {
+			&r.AirQualityRaw, &r.DustOffset, &r.HWVersion,
+			&r.LuxCount, &r.Pressure, &r.TVOC, &r.CO2, &r.UVCount,
+			&r.R, &r.G, &r.B, &r.Clear); err != nil {
 			return nil, fmt.Errorf("store: samples between: %w", err)
 		}
 		out = append(out, r)

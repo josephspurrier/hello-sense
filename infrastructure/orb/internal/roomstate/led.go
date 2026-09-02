@@ -16,6 +16,12 @@ package roomstate
 // per sensor and doing it at the call site is how the light bug below happened
 // in the reference.
 type DeviceSample struct {
+	// HardwareVersion selects the conversions: 4 is the Sense 1.5, anything
+	// else the original. LuxCount is the 1.5's light reading; Light is the
+	// 1.0's, and on a 1.5 it is the clear channel and is not used.
+	HardwareVersion int32
+	LuxCount        int32
+
 	Temperature int32
 	Humidity    int32
 	// Light is the raw count. It is NOT lux: see Conditions.
@@ -68,9 +74,10 @@ type DeviceSample struct {
 // The lights-OFF condition is unaffected either way, because that path forces
 // light to IDEAL before it is ever classified.
 func Conditions(s DeviceSample, dustOffset *int32) (lightsOn, lightsOff string) {
-	temperature := Classify(CalibratedTemperature(s.Temperature), TemperatureScale).Condition
-	humidity := Classify(CalibratedHumidity(s.Temperature, s.Humidity), HumidityScale).Condition
-	light := Classify(CalibratedLux(s.Light), LightScale).Condition
+	temperature := Classify(Temperature(s.HardwareVersion, s.Temperature), TemperatureScale).Condition
+	humidity := Classify(Humidity(s.HardwareVersion, s.Temperature, s.Humidity), HumidityScale).Condition
+	luxCount := s.LuxCount
+	light := Classify(Lux(s.HardwareVersion, s.Light, &luxCount), LightScale).Condition
 	sound := Classify(DeviceSound(s.AudioPeakBackgroundDB, s.AudioPeakDisturbanceDB), NoiseScale).Condition
 
 	// Every modality that counts, in both variants. Dust joins only when the

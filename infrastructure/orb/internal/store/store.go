@@ -45,6 +45,11 @@ type Sense struct {
 	// room condition needs it on every single upload, and it sits in the row the
 	// edge already has to fetch to authenticate.
 	DustOffset *int32
+
+	// HWVersion is the reference's HardwareVersion id (1 original, 4 the Sense
+	// 1.5), zero when the device never reported one. Decides how its readings
+	// are converted.
+	HWVersion int32
 }
 
 // SenseByID returns the device and the account it is paired to.
@@ -56,10 +61,11 @@ type Sense struct {
 func (s *Store) SenseByID(ctx context.Context, deviceID string) (Sense, error) {
 	var out Sense
 	err := s.pool.QueryRow(ctx, `
-		SELECT s.device_id, s.aes_key, a.account_id, s.dust_offset
+		SELECT s.device_id, s.aes_key, a.account_id, s.dust_offset,
+		       COALESCE(NULLIF(s.hw_version, '')::int, 0)
 		FROM senses s
 		JOIN account_senses a ON a.device_id = s.device_id AND a.active
-		WHERE s.device_id = $1`, deviceID).Scan(&out.DeviceID, &out.AESKey, &out.AccountID, &out.DustOffset)
+		WHERE s.device_id = $1`, deviceID).Scan(&out.DeviceID, &out.AESKey, &out.AccountID, &out.DustOffset, &out.HWVersion)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, fmt.Errorf("%w: %s", ErrUnknownDevice, deviceID)
 	}
@@ -102,6 +108,7 @@ type SensorSample struct {
 	Clear    *int32
 	LuxCount *int32
 	UVCount  *int32
+	R, G, B  *int32
 }
 
 // InsertSensorSamples writes a batch.
@@ -120,15 +127,16 @@ func (s *Store) InsertSensorSamples(ctx context.Context, samples []SensorSample)
 				temperature, humidity, light, light_variance, air_quality_raw,
 				audio_peak_background_db, audio_peak_energy_db, audio_peak_disturbances_db,
 				audio_num_disturbances, wave_count, hold_count,
-				pressure, tvoc, co2, ir, clear, lux_count, uv_count)
+				pressure, tvoc, co2, ir, clear, lux_count, uv_count, r, g, b)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-				$16,$17,$18,$19,$20,$21,$22)
+				$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)
 			ON CONFLICT (device_id, ts) DO NOTHING`,
 			m.DeviceID, m.TS, m.AccountID, m.OffsetMS,
 			m.Temperature, m.Humidity, m.Light, m.LightVariance, m.AirQualityRaw,
 			m.AudioPeakBackgroundDB, m.AudioPeakEnergyDB, m.AudioPeakDisturbanceDB,
 			m.AudioNumDisturbances, m.WaveCount, m.HoldCount,
-			m.Pressure, m.TVOC, m.CO2, m.IR, m.Clear, m.LuxCount, m.UVCount)
+			m.Pressure, m.TVOC, m.CO2, m.IR, m.Clear, m.LuxCount, m.UVCount,
+			m.R, m.G, m.B)
 	}
 	res := s.pool.SendBatch(ctx, batch)
 	defer res.Close()

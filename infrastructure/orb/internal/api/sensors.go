@@ -227,12 +227,13 @@ func sensorViews(sample *store.LatestSampleRow, tempPref string, stale bool) []S
 		views = append(views, v)
 	}
 
+	hw := sample.HWVersion
 	add("TEMPERATURE", "Temperature", "CELSIUS",
-		calibratedTemperature(sample.Temperature), temperatureScaleFor(tempPref))
+		roomstate.Temperature(hw, sample.Temperature), temperatureScaleFor(tempPref))
 	add("HUMIDITY", "Humidity", "PERCENT",
-		calibratedHumidity(sample.Temperature, sample.Humidity), humidityScale)
+		roomstate.Humidity(hw, sample.Temperature, sample.Humidity), humidityScale)
 	add("LIGHT", "Light", "LUX",
-		calibratedLux(sample.Light), lightScale)
+		roomstate.Lux(hw, sample.Light, sample.LuxCount), lightScale)
 
 	// Air quality is ALWAYS shown, which is a deliberate divergence.
 	//
@@ -250,6 +251,32 @@ func sensorViews(sample *store.LatestSampleRow, tempPref string, stale bool) []S
 
 	// "Noise", not "Sound". The type stays SOUND; only the label differs, and
 	// the two are not interchangeable in the response.
+	// The Sense 1.5's extra sensors, each only when the row carries it. The
+	// app groups PARTICULATES, CO2 and TVOC into one air-quality tile and
+	// renders the rest on their own; the type and unit strings are the ones
+	// SenseKit parses (SENSensor.m). CO2 and TVOC follow PARTICULATES so the
+	// group is contiguous.
+	if roomstate.IsOneFive(hw) {
+		if sample.CO2 != nil {
+			add("CO2", "CO2", "PPM", roomstate.CO2PPM(*sample.CO2), roomstate.CO2Scale)
+		}
+		if sample.TVOC != nil {
+			add("TVOC", "Chemicals", "VOC", roomstate.TVOC(*sample.TVOC), roomstate.TVOCScale)
+		}
+		if sample.Pressure != nil {
+			add("PRESSURE", "Air Pressure", "MILLIBAR",
+				roomstate.PressureMillibar(*sample.Pressure), roomstate.PressureScale)
+		}
+		if sample.UVCount != nil {
+			add("UV", "UV Light", "RATIO", roomstate.UVIndex(*sample.UVCount), roomstate.UVScale)
+		}
+		if sample.R != nil && sample.G != nil && sample.B != nil && sample.Clear != nil {
+			add("LIGHT_TEMP", "Light Temperature", "KELVIN",
+				roomstate.LightTemperatureKelvin(*sample.R, *sample.G, *sample.B, *sample.Clear),
+				roomstate.LightTemperatureScale)
+		}
+	}
+
 	add("SOUND", "Noise", "DB",
 		calibratedSound(sample.AudioPeakEnergyDB, sample.AudioPeakDisturbancesDB), noiseScale)
 

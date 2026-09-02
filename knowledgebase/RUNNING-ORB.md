@@ -494,3 +494,39 @@ Seen side by side in one room (2026-09-02 morning): voice Sense lux_count 184
 degrees C warmer than the orb's; the orb's audio peak fields are all ZERO
 (the voice Sense reports sound, the orb reports none); the voice Sense has no
 dust calibration row so its particulates read WARNING.
+
+### Room Conditions, trends and the LED read the 1.5 as a 1.5 (2026-09-02)
+
+The app-facing sensor path (`internal/roomstate`, `api/sensors.go`,
+`api/sensorseries.go`, and the LED colours in the sync response) had no
+hardware version either. `roomstate/onefive.go` now carries the 1.5
+conversions and the rows carry `hw_version` (from `senses`) so temperature,
+humidity and light convert per device. Migration 0018 adds the colour
+channels `r`, `g`, `b`. A Sense 1.5 now also gets the extra tiles the iOS
+app already renders: CO2 (PPM), TVOC (VOC), PRESSURE (MILLIBAR), UV (RATIO)
+and LIGHT_TEMP (KELVIN), with the reference's conversions and OUR bands (the
+backend snapshot predates its classifiers for these; see the scales in
+onefive.go). Sensor series answer the same names. The app groups
+PARTICULATES, CO2 and TVOC into one air-quality tile.
+
+### The orb Sense's microphone is server-gated (2026-09-02)
+
+Every audio field from the orb Sense had been zero since 2026-08-29 21:10
+UTC, the exact minute the first custom build (4514, from stock 4513)
+completed, so it looked like a build defect. It was not. The 1.9.2 firmware
+starts audio capture only when told to: a console command, or a sync
+response carrying `audio_control` with capture ON (wifi_cmd.c,
+AudioControlHelper). Nothing starts it at boot. The reference put that block
+on EVERY sync response (ReceiveResource: capture ON, feature and raw saving
+OFF); orb never did. Stock 4513 had simply kept capturing from before the
+cutover until the 08-29 OTA rebooted it, and the timeline then showed no
+noise events and a permanently ideal sound score. orb now sends
+`audio_control{audio_capture_action: ON}` to a Sense 1.0 on every sync
+(`edge.setAudioControl`); sound returned on the first minute after the
+deploy. Deliberately NOT sent to the 1.5: its firmware captures continuously
+for the wake word and manages its own feature uploads, and the reference's
+save_features OFF would switch those off.
+
+Note: `senses.firmware_version` for the orb Sense reads 4538, not the 4539
+the orientation notes claim; the 4539 offer completed but the device reports
+4538 since.
