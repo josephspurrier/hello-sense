@@ -66,6 +66,16 @@ func (h *Handler) uploadAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Muted: acknowledge without transcribing or answering. The always-on
+	// wake word still fires the LED on-device (nothing server-side can stop
+	// that on this hardware), but a muted Sense neither speaks back nor has
+	// its captured audio run through speech-to-text. The empty 200 is the same
+	// "handled, no speech" the device expects from STOP/SNOOZE.
+	if _, _, muted, ok, err := h.store.VoicePushInfo(ctx, deviceID); err == nil && ok && muted {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	// No recognizer wired up: close the loop with the canned reply so the
 	// device still speaks instead of erroring.
 	if !h.Synth.Available() {
@@ -93,6 +103,16 @@ func (h *Handler) uploadAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Streamed synthesis: the device plays the MP3 progressively, so sending
+	// fragments as they are synthesized moves first audio up by roughly a
+	// second. Falls back to whole-reply synthesis when not configured or when
+	// the stream cannot start.
+	if h.Synth.StreamAvailable() {
+		if h.writeStreamedMP3(w, ctx, deviceID, reply) {
+			return
+		}
+	}
+
 	mp3, err := h.Synth.Synthesize(ctx, reply)
 	if err != nil {
 		h.log.Warn("voice synth failed", "device", deviceID, "err", err)
@@ -103,33 +123,107 @@ func (h *Handler) uploadAudio(w http.ResponseWriter, r *http.Request) {
 	h.writeMP3(w, mp3)
 }
 
-// pushVoiceVolume delivers a signed SET_VOLUME over the messeji long-poll.
-// Returns true when it wrote a response (so the caller marks the device done
-// and stops), false to fall through to the normal wait (not a voice unit, no
-// key, or an encode error, none of which should hold up the poll).
-func (h *Handler) pushVoiceVolume(ctx context.Context, w http.ResponseWriter, deviceID string) bool {
-	key, volume, ok, err := h.store.VoicePushInfo(ctx, deviceID)
+// writeStreamedMP3 relays fragment-by-fragment synthesis to the device. The
+// Content-Length is the sidecar's upper-bound estimate and the tail is padded
+// with silence, because the device needs the length before the first byte but
+// plays bytes as they arrive. Returns false only when nothing has been
+// written yet and the caller can still fall back; once the header is out this
+// path owns the response.
+func (h *Handler) writeStreamedMP3(w http.ResponseWriter, ctx context.Context, deviceID, reply string) bool {
+	body, est, err := h.Synth.SynthesizeStream(ctx, reply)
 	if err != nil {
-		h.log.Warn("voice volume lookup", "device", deviceID, "err", err)
+		h.log.Warn("voice stream synth unavailable", "device", deviceID, "err", err)
+		return false
+	}
+	defer body.Close()
+
+	w.Header().Set("Content-Type", "audio/mpeg")
+	w.Header().Set("Content-Length", strconv.Itoa(est))
+	w.WriteHeader(http.StatusOK)
+
+	flush := func() {}
+	if f, ok := w.(http.Flusher); ok {
+		flush = f.Flush
+	}
+	start := time.Now()
+	audio, truncated, err := speech.CopyPadded(w, body, est, flush)
+	if err != nil {
+		h.log.Warn("voice stream write", "device", deviceID, "err", err)
+		return true
+	}
+	if truncated {
+		h.log.Warn("voice stream truncated", "device", deviceID, "estimate", est)
+	}
+	h.log.Info("voice reply", "device", deviceID, "reply", reply,
+		"streamed", true, "audio_bytes", audio, "declared", est,
+		"ms", time.Since(start).Milliseconds())
+	return true
+}
+
+// voiceState is the last mute/volume orb delivered to a device, cached so a
+// command is only re-sent when the desired state actually drifts.
+type voiceState struct {
+	enabled bool
+	volume  uint32
+}
+
+// pushVoiceState delivers a voice-control (mute) or volume command over the
+// messeji long-poll when the desired state has drifted from what was last sent,
+// so an in-app change takes effect on the next poll (~10s) instead of never.
+// Returns true when it wrote a response (so the caller stops).
+//
+// Mute maps to the firmware's disable_voice, not to volume 0: a muted Sense
+// ignores trigger words entirely (no upload, no speech) and, importantly, does
+// NOT light its wake LED, because the firmware draws the wake glow only while
+// voice is enabled. SET_VOLUME alone would only silence the speaker. Enable
+// governs listening and the LED, so it is sent ahead of any volume change;
+// volume matters only while enabled.
+func (h *Handler) pushVoiceState(ctx context.Context, w http.ResponseWriter, deviceID string) bool {
+	key, volume, muted, ok, err := h.store.VoicePushInfo(ctx, deviceID)
+	if err != nil {
+		h.log.Warn("voice state lookup", "device", deviceID, "err", err)
 		return false
 	}
 	if !ok {
 		return false
 	}
-	// message_id is the unix-nano clock: unique enough for the device's ack
-	// queue, and monotonic so a later push always looks newer.
-	batch := messeji.VolumeBatch(volume, time.Now().UnixNano())
-	signed, err := sense.Sign(key, batch)
-	if err != nil {
-		h.log.Error("sign voice volume", "device", deviceID, "err", err)
-		return false
+	want := voiceState{enabled: !muted, volume: volume}
+
+	// Unseen this process: the device boots voice-enabled and near-silent, so
+	// assume enabled and force a first volume push with an impossible sentinel.
+	prev := voiceState{enabled: true, volume: ^uint32(0)}
+	if v, seen := h.volumePushed.Load(deviceID); seen {
+		prev = v.(voiceState)
 	}
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.Itoa(len(signed)))
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(signed)
-	h.log.Info("pushed voice volume", "device", deviceID, "volume", volume)
-	return true
+
+	// message_id is the unix-nano clock: unique per command and monotonic, so a
+	// later push always looks newer to the device's ack queue.
+	send := func(batch []byte, next voiceState, key0, val string) bool {
+		signed, serr := sense.Sign(key, batch)
+		if serr != nil {
+			h.log.Error("sign voice state", "device", deviceID, "err", serr)
+			return false
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", strconv.Itoa(len(signed)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(signed)
+		h.volumePushed.Store(deviceID, next)
+		h.log.Info("pushed voice state", "device", deviceID, key0, val)
+		return true
+	}
+
+	if prev.enabled != want.enabled {
+		return send(messeji.VoiceControlBatch(want.enabled, time.Now().UnixNano()),
+			voiceState{enabled: want.enabled, volume: prev.volume},
+			"voice_enabled", strconv.FormatBool(want.enabled))
+	}
+	if want.enabled && prev.volume != want.volume {
+		return send(messeji.VolumeBatch(want.volume, time.Now().UnixNano()),
+			voiceState{enabled: want.enabled, volume: want.volume},
+			"volume", strconv.FormatUint(uint64(want.volume), 10))
+	}
+	return false
 }
 
 func (h *Handler) writeMP3(w http.ResponseWriter, mp3 []byte) {

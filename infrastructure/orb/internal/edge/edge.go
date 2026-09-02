@@ -89,11 +89,11 @@ type Handler struct {
 	// device's voice loop.
 	Synth *speech.Synth
 
-	// volumePushed records devices this process has already sent their speaker
-	// volume to over messeji. The Sense with Voice boots near-silent and only
-	// gets its volume from a SET_VOLUME command, so the first /receive poll
-	// after start delivers one. Once per process is enough: the device keeps
-	// the setting, and a restart harmlessly re-sends.
+	// volumePushed records the last voiceState (mute + volume) delivered to each
+	// device over messeji. The Sense with Voice only learns its mute/volume from
+	// voice-control and SET_VOLUME commands, so a poll delivers one whenever the
+	// desired state changed, which is how an in-app mute or volume change reaches
+	// the device. Process-scoped: an orb restart harmlessly re-asserts.
 	volumePushed sync.Map
 }
 
@@ -705,15 +705,12 @@ func (h *Handler) receive(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// The Sense with Voice boots near-silent; deliver its speaker volume once,
-	// on the first poll after start, before falling into the normal wait. A
-	// device that is not a voice unit, has no key, or has already been sent its
-	// volume skips straight through.
-	if _, done := h.volumePushed.Load(deviceID); !done {
-		if h.pushVoiceVolume(ctx, w, deviceID) {
-			h.volumePushed.Store(deviceID, true)
-			return
-		}
+	// The Sense with Voice boots voice-enabled and near-silent; deliver its
+	// mute (voice-control) and volume state before falling into the normal wait,
+	// and re-deliver whenever it changed since last time. A device that is not a
+	// voice unit, has no key, or whose state is unchanged skips straight through.
+	if h.pushVoiceState(ctx, w, deviceID) {
+		return
 	}
 
 	// Poll rather than LISTEN/NOTIFY: one device, a 10 second horizon, and a

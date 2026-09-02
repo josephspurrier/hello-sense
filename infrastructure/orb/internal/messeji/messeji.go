@@ -14,7 +14,8 @@
 //	          int64 message_id = 3; Type type = 4 (req);
 //	          PlayAudio play_audio = 5; StopAudio stop_audio = 6;
 //	          Volume volume = 7 }
-//	Type { PLAY_AUDIO = 0; STOP_AUDIO = 1; SET_VOLUME = 2 }
+//	Type { PLAY_AUDIO = 0; STOP_AUDIO = 1; SET_VOLUME = 2; VOICE_CONTROL = 3 }
+//	VoiceControl { bool enable = 1 }   // false => firmware disable_voice = true
 //	PlayAudio { string file_path = 1 (req); uint32 volume_percent = 2 (req);
 //	            uint32 duration_seconds = 3; uint32 fade_in_duration_seconds = 4 (req);
 //	            uint32 fade_out_duration_seconds = 5 (req);
@@ -32,9 +33,10 @@ package messeji
 import "encoding/binary"
 
 const (
-	typePlayAudio = 0
-	typeStopAudio = 1
-	typeSetVolume = 2
+	typePlayAudio    = 0
+	typeStopAudio    = 1
+	typeSetVolume    = 2
+	typeVoiceControl = 3
 )
 
 // The fade constants are suripu's: one second in and out feels deliberate
@@ -94,6 +96,27 @@ func VolumeBatch(volume uint32, messageID int64) []byte {
 	msg = appendField(msg, 3, wireVarint, uint64(messageID))
 	msg = appendField(msg, 4, wireVarint, typeSetVolume)
 	msg = appendLenField(msg, 7, vol)
+
+	return appendLenField(nil, 1, msg)
+}
+
+// VoiceControlBatch encodes a signed-ready BatchMessage that enables or
+// disables the on-device wake word. enable=false sets the firmware's
+// disable_voice, which makes it ignore trigger words entirely: no upload, no
+// speech, and crucially no LED (the wake glow is drawn only when voice is
+// enabled). This is how a muted Sense stops listening AND stops lighting up,
+// which SET_VOLUME=0 alone cannot do (that only silences the speaker).
+func VoiceControlBatch(enable bool, messageID int64) []byte {
+	var vc []byte
+	if enable {
+		vc = appendField(vc, 1, wireVarint, 1) // false is the field's default; omit it
+	}
+
+	var msg []byte
+	msg = appendField(msg, 2, wireVarint, 1) // order
+	msg = appendField(msg, 3, wireVarint, uint64(messageID))
+	msg = appendField(msg, 4, wireVarint, typeVoiceControl)
+	msg = appendLenField(msg, 8, vc)
 
 	return appendLenField(nil, 1, msg)
 }
