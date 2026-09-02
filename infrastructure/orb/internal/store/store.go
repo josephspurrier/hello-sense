@@ -89,6 +89,19 @@ type SensorSample struct {
 	AudioNumDisturbances   *int32
 	WaveCount              *int32
 	HoldCount              *int32
+
+	// The Sense 1.5 extras, nil on a Sense 1.0. Pressure is Q24.8 pascals,
+	// TVOC ppb, CO2 ppm; the light-sensor group is the TCS3400's clear and IR
+	// channels plus the firmware's own lux and UV counts. The reference reads
+	// light for a 1.5 from lux_count, not from light, and converts
+	// temperature and humidity differently too (SenseOneFiveDataConversion).
+	Pressure *int32
+	TVOC     *int32
+	CO2      *int32
+	IR       *int32
+	Clear    *int32
+	LuxCount *int32
+	UVCount  *int32
 }
 
 // InsertSensorSamples writes a batch.
@@ -106,13 +119,16 @@ func (s *Store) InsertSensorSamples(ctx context.Context, samples []SensorSample)
 			INSERT INTO sensor_samples (device_id, ts, account_id, offset_ms,
 				temperature, humidity, light, light_variance, air_quality_raw,
 				audio_peak_background_db, audio_peak_energy_db, audio_peak_disturbances_db,
-				audio_num_disturbances, wave_count, hold_count)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+				audio_num_disturbances, wave_count, hold_count,
+				pressure, tvoc, co2, ir, clear, lux_count, uv_count)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
+				$16,$17,$18,$19,$20,$21,$22)
 			ON CONFLICT (device_id, ts) DO NOTHING`,
 			m.DeviceID, m.TS, m.AccountID, m.OffsetMS,
 			m.Temperature, m.Humidity, m.Light, m.LightVariance, m.AirQualityRaw,
 			m.AudioPeakBackgroundDB, m.AudioPeakEnergyDB, m.AudioPeakDisturbanceDB,
-			m.AudioNumDisturbances, m.WaveCount, m.HoldCount)
+			m.AudioNumDisturbances, m.WaveCount, m.HoldCount,
+			m.Pressure, m.TVOC, m.CO2, m.IR, m.Clear, m.LuxCount, m.UVCount)
 	}
 	res := s.pool.SendBatch(ctx, batch)
 	defer res.Close()

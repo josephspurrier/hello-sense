@@ -75,6 +75,8 @@ func (s *Scorer) ScoreNight(ctx context.Context, accountID int64, date time.Time
 		Age:        night.Age,
 		DustOffset: night.DustOffset,
 
+		HardwareVersion: night.HardwareVersion,
+
 		// Non-nil so the three lists marshal as [] rather than null. Jackson
 		// leaves a null field null instead of keeping the field initialiser,
 		// and the far side then dereferences it.
@@ -93,6 +95,8 @@ func (s *Scorer) ScoreNight(ctx context.Context, accountID int64, date time.Time
 			AudioPeakEnergyDB: s.AudioPeakEnergyDB, AudioPeakDisturbanceDB: s.AudioPeakDisturbanceDB,
 			AudioNumDisturbances: s.AudioNumDisturbances, WaveCount: s.WaveCount,
 			HoldCount: s.HoldCount,
+			Pressure:  s.Pressure, TVOC: s.TVOC, CO2: s.CO2, IR: s.IR, Clear: s.Clear,
+			LuxCount: s.LuxCount, UVCount: s.UVCount,
 		})
 	}
 	for _, m := range night.Motion {
@@ -112,6 +116,16 @@ func (s *Scorer) ScoreNight(ctx context.Context, accountID int64, date time.Time
 			EventType: f.EventType, OldTime: f.OldTime, NewTime: f.NewTime,
 			CreatedAt: f.CreatedAt,
 		})
+	}
+
+	// The last stored answer rides along as the fallback for a night every
+	// algorithm now refuses. This happens: VOTING scores a night in the
+	// morning, then the day's motion arrives and the same night comes back
+	// EVENTS_OUT_OF_ORDER on every later pass. Without the fallback a
+	// correction on such a night is stored, acknowledged, and never drawn.
+	req.StoredEvents, err = s.store.StoredEvents(ctx, accountID, date)
+	if err != nil {
+		return err
 	}
 
 	res, err := s.algo.Timeline(ctx, req)

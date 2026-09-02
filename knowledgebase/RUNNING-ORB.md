@@ -462,3 +462,35 @@ To replay a night against orb-algo without touching stored data, use
 `~/replay_night.py <account> <date> [algorithm|-] [asof]` on the VM
 (`NO_PARTNER=1` drops the partner motion). It rebuilds the request the way
 `LoadNight` does and posts it to the service.
+
+### Corrections on a night the algorithm now refuses (2026-09-02)
+
+VOTING can score a night in the morning and then, once the day's motion has
+arrived, return EVENTS_OUT_OF_ORDER on every later pass. A correction made on
+such a night used to be stored, acknowledged by the app, and never drawn,
+and the worker re-picked the night forever because its feedback stayed newer
+than its timeline. Now the request carries `stored_events` (the night's four
+main events as last stored) and orb-algo, when every algorithm fails, rebuilds
+the night from them with the feedback applied (`algorithm = STORED`). The
+learner still runs inside the chain; only the drawn answer changes.
+
+### The Sense 1.5 (with voice) is not a Sense 1.0 (2026-09-02)
+
+The reference converts the two generations differently
+(`CalibratedDeviceData` picks `SenseOneFiveDataConversion` when the row has
+the 1.5 extras): light comes from `lux_count / 5`, not from `light` (which on
+the 1.5 is the sensor's clear channel: about 43 counts in a lit room, which the
+1.0 formula turns into 0.16 lux, below the 1.1 lux darkness threshold, so the
+room never registers as lit and LIGHTS_OUT is never found); temperature is
+raw minus 6.00, not minus 3.89; humidity is raw, uncorrected. orb now stores the
+1.5 extras (`pressure`, `tvoc`, `co2`, `ir`, `clear`, `lux_count`, `uv_count`,
+columns that existed but were never written) and sends `hardware_version`
+(from `senses.hw_version`, 4 for the 1.5) so orb-algo builds
+`DeviceData.senseOneFive`. Rows stored before 2026-09-02 13:20 UTC have no
+`lux_count`, so nights before then still show no lights-out for a 1.5.
+
+Seen side by side in one room (2026-09-02 morning): voice Sense lux_count 184
+(37 lux) vs orb light 1075 counts (4 lux); voice temperature converts about 2
+degrees C warmer than the orb's; the orb's audio peak fields are all ZERO
+(the voice Sense reports sound, the orb reports none); the voice Sense has no
+dust calibration row so its particulates read WARNING.

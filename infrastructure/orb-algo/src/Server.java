@@ -23,7 +23,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.LinkedList;
+import java.util.List;
+import com.google.common.collect.ImmutableList;
+import com.hello.suripu.core.models.Events.FallingAsleepEvent;
+import com.hello.suripu.core.models.Events.InBedEvent;
+import com.hello.suripu.core.models.Events.OutOfBedEvent;
+import com.hello.suripu.core.models.Events.WakeupEvent;
+import com.hello.suripu.core.translations.English;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -182,60 +190,106 @@ public final class Server {
                 continue;
             }
 
-            // MOVE EVENTS BASED ON FEEDBACK, before anything reads them.
-            //
-            // Feedback has two jobs and they are easy to conflate. The
-            // `feedbackChanged` boolean above is the LEARNING half: it lets a
-            // correction train the ONLINE_HMM model for future nights. This is
-            // the DISPLAY half: it moves the event on the night the person
-            // actually corrected.
-            //
-            // Only the first half was here, so a correction was stored,
-            // acknowledged, fed to the learner, and then silently discarded
-            // from the answer. The app showed the algorithm's original time
-            // back, which reads as "the save did not work" and is worse than an
-            // error would have been.
-            //
-            // The reference does this at InstrumentedTimelineProcessor:641 and
-            // then reads its four main events out of the REPROCESSED map, which
-            // is the part that matters: taking the times from feedback but the
-            // segments from the original events would draw a timeline whose
-            // sleep depth disagreed with its own labels.
-            //
-            // reprocessEventsBasedOnFeedback also enforces ordering, so a wake
-            // time dragged past getting out of bed is reconciled rather than
-            // accepted as-is.
-            final FeedbackUtils feedbackUtils = new FeedbackUtils(Optional.<UUID>absent());
-            final FeedbackUtils.ReprocessedEvents reprocessed =
-                    feedbackUtils.reprocessEventsBasedOnFeedback(
-                            SleepPeriod.Period.NIGHT,
-                            data.feedbackList,
-                            res.get().mainEvents.values(),
-                            res.get().extraEvents,
-                            Mapping.timeZoneOffsetMap(req.offsetMs));
-
-            final Map<Event.Type, Event> events = new HashMap<>(reprocessed.mainEvents);
-            out.inBed = iso(events.get(Event.Type.IN_BED));
-            out.sleep = iso(events.get(Event.Type.SLEEP));
-            out.wakeUp = iso(events.get(Event.Type.WAKE_UP));
-            out.outOfBed = iso(events.get(Event.Type.OUT_OF_BED));
-
-            // All four or nothing. ONLINE_HMM returns partial results when its
-            // SLEEP model has collapsed, and a timeline with a bedtime and no
-            // sleep is worse than falling through to VOTING.
-            if (out.inBed != null && out.sleep != null && out.wakeUp != null && out.outOfBed != null) {
-                out.status = "NO_ERROR";
+            if (finish(out, req, data, res.get().mainEvents.values(), res.get().extraEvents)) {
                 out.updatedModel = priors.updatedModelBytes();
                 out.updatedScratchpad = priors.updatedScratchpadBytes();
-                // Only for a night that scored. The segment list is a rendering
-                // of the four main events against the samples, so without them
-                // there is nothing to render around.
-                Timeline.populate(out, data, events, req.offsetMs, req.age);
                 return out;
             }
-            out.status = "MISSING_KEY_EVENTS";
+        }
+
+        // Every algorithm refused the night. If it was scored before, rebuild
+        // it from the events it was last drawn with, feedback applied.
+        //
+        // This is the case a correction runs into: VOTING scores a night in
+        // the morning, the day's motion arrives, and from then on the same
+        // night comes back EVENTS_OUT_OF_ORDER on every pass. Without this the
+        // correction was stored, acknowledged and never drawn, and the night
+        // was re-picked by the worker forever because its feedback stayed
+        // newer than its timeline. The reference had no stored answer to fall
+        // back on and simply showed nothing; keeping the last good one is
+        // better, and applying the person's own correction to it better still.
+        //
+        // No model update here: the learner ran above, inside the chain.
+        final Json.StoredEvents stored = req.storedEvents;
+        if (stored != null && stored.inBedMillis > 0 && stored.sleepMillis > 0
+                && stored.wakeUpMillis > 0 && stored.outOfBedMillis > 0) {
+            final String failedAs = out.algorithm + "/" + out.status;
+            out.algorithm = "STORED";
+            final SleepPeriod.Period period = SleepPeriod.Period.NIGHT;
+            final int offset = req.offsetMs;
+            final List<Event> events = new ArrayList<>();
+            events.add(new InBedEvent(period, stored.inBedMillis, stored.inBedMillis + 60_000L, offset, English.IN_BED_MESSAGE));
+            events.add(new FallingAsleepEvent(period, stored.sleepMillis, stored.sleepMillis + 60_000L, offset, English.FALL_ASLEEP_MESSAGE));
+            events.add(new WakeupEvent(period, stored.wakeUpMillis, stored.wakeUpMillis + 60_000L, offset));
+            events.add(new OutOfBedEvent(period, stored.outOfBedMillis, stored.outOfBedMillis + 60_000L, offset));
+            System.out.println("timeline account=" + req.accountId + " date=" + req.date
+                    + " chain failed as " + failedAs + "; rebuilding from stored events"
+                    + " feedback=" + (req.feedback == null ? 0 : req.feedback.size()));
+            if (finish(out, req, data, events, ImmutableList.<Event>of())) {
+                return out;
+            }
         }
         return out;
+    }
+
+    /**
+     * Applies the feedback to a set of main events and, when all four survive,
+     * renders the night around them. Returns whether it did.
+     *
+     * MOVE EVENTS BASED ON FEEDBACK, before anything reads them.
+     *
+     * Feedback has two jobs and they are easy to conflate. The `feedbackChanged`
+     * boolean in timeline() is the LEARNING half: it lets a correction train
+     * the ONLINE_HMM model for future nights. This is the DISPLAY half: it
+     * moves the event on the night the person actually corrected.
+     *
+     * Only the first half was here originally, so a correction was stored,
+     * acknowledged, fed to the learner, and then silently discarded from the
+     * answer. The app showed the algorithm's original time back, which reads
+     * as "the save did not work" and is worse than an error would have been.
+     *
+     * The reference does this at InstrumentedTimelineProcessor:641 and then
+     * reads its four main events out of the REPROCESSED map, which is the part
+     * that matters: taking the times from feedback but the segments from the
+     * original events would draw a timeline whose sleep depth disagreed with
+     * its own labels.
+     *
+     * reprocessEventsBasedOnFeedback also enforces ordering, so a wake time
+     * dragged past getting out of bed is reconciled rather than accepted as-is.
+     *
+     * All four or nothing. ONLINE_HMM returns partial results when its SLEEP
+     * model has collapsed, and a timeline with a bedtime and no sleep is worse
+     * than falling through to VOTING.
+     */
+    private static boolean finish(final Json.Result out, final Json.Request req,
+                                  final OneDaysSensorData data,
+                                  final java.util.Collection<Event> mainEvents,
+                                  final ImmutableList<Event> extraEvents) {
+        final FeedbackUtils feedbackUtils = new FeedbackUtils(Optional.<UUID>absent());
+        final FeedbackUtils.ReprocessedEvents reprocessed =
+                feedbackUtils.reprocessEventsBasedOnFeedback(
+                        SleepPeriod.Period.NIGHT,
+                        data.feedbackList,
+                        ImmutableList.copyOf(mainEvents),
+                        extraEvents,
+                        Mapping.timeZoneOffsetMap(req.offsetMs));
+
+        final Map<Event.Type, Event> events = new HashMap<>(reprocessed.mainEvents);
+        out.inBed = iso(events.get(Event.Type.IN_BED));
+        out.sleep = iso(events.get(Event.Type.SLEEP));
+        out.wakeUp = iso(events.get(Event.Type.WAKE_UP));
+        out.outOfBed = iso(events.get(Event.Type.OUT_OF_BED));
+
+        if (out.inBed != null && out.sleep != null && out.wakeUp != null && out.outOfBed != null) {
+            out.status = "NO_ERROR";
+            // Only for a night that scored. The segment list is a rendering of
+            // the four main events against the samples, so without them there
+            // is nothing to render around.
+            Timeline.populate(out, data, events, req.offsetMs, req.age);
+            return true;
+        }
+        out.status = "MISSING_KEY_EVENTS";
+        return false;
     }
 
     /**

@@ -32,6 +32,12 @@ public final class Json {
         // reference's partner FILTERS, which rewrite `motion`, are not run.
         @JsonProperty("partner_account_id") public long partnerAccountId;
         @JsonProperty("partner_motion")     public List<Motion> partnerMotion = new ArrayList<>();
+
+        // The night's four main events as last stored, null when never scored.
+        // Used only when every algorithm fails on the night: the events are
+        // taken as given, the feedback is applied to them, and the timeline
+        // is rebuilt around that. See Server.timeline.
+        @JsonProperty("stored_events") public StoredEvents storedEvents;
         // Go marshals []byte as base64, which Jackson decodes into byte[].
         @JsonProperty("prior_model") public byte[] priorModel;
         @JsonProperty("scratchpad")  public byte[] scratchpad;
@@ -64,6 +70,22 @@ public final class Json {
         // derives a delta of +300, and is a different thing from no calibration
         // at all. A primitive would silently turn the second into the first.
         @JsonProperty("dust_offset") public Integer dustOffset;
+
+        // 1 (or 0, unknown) for the original Sense, 4 for the Sense 1.5, the
+        // reference's HardwareVersion ids. A 1.5 is converted with
+        // SenseOneFiveDataConversion: its light comes from lux_count, and its
+        // temperature and humidity use different offsets. Read as a 1.0, a
+        // 1.5's lit room sits below the darkness threshold all evening.
+        @JsonProperty("hardware_version") public int hardwareVersion;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static final class StoredEvents {
+        public long inBedMillis, sleepMillis, wakeUpMillis, outOfBedMillis;
+        @JsonProperty("in_bed")     public void setInBed(final String s)    { inBedMillis = org.joda.time.DateTime.parse(s).getMillis(); }
+        @JsonProperty("sleep")      public void setSleep(final String s)    { sleepMillis = org.joda.time.DateTime.parse(s).getMillis(); }
+        @JsonProperty("wake_up")    public void setWakeUp(final String s)   { wakeUpMillis = org.joda.time.DateTime.parse(s).getMillis(); }
+        @JsonProperty("out_of_bed") public void setOutOfBed(final String s) { outOfBedMillis = org.joda.time.DateTime.parse(s).getMillis(); }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -83,6 +105,16 @@ public final class Json {
         @JsonProperty("audio_num_disturbances")     public Integer audioNumDisturbances;
         @JsonProperty("wave_count")                 public Integer waveCount;
         @JsonProperty("hold_count")                 public Integer holdCount;
+
+        // Sense 1.5 extras, null on a 1.0 and on 1.5 rows stored before orb
+        // kept them (2026-09-02).
+        @JsonProperty("pressure")  public Integer pressure;
+        @JsonProperty("tvoc")      public Integer tvoc;
+        @JsonProperty("co2")       public Integer co2;
+        @JsonProperty("ir")        public Integer ir;
+        @JsonProperty("clear")     public Integer clear;
+        @JsonProperty("lux_count") public Integer luxCount;
+        @JsonProperty("uv_count")  public Integer uvCount;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

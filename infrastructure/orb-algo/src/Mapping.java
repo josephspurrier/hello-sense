@@ -7,6 +7,8 @@ import com.hello.suripu.core.models.CalibratedDeviceData;
 import com.hello.suripu.core.models.Calibration;
 import com.hello.suripu.core.models.Device;
 import com.hello.suripu.core.models.DeviceData;
+import com.hello.suripu.core.firmware.HardwareVersion;
+import com.hello.suripu.core.sense.data.SenseOneFiveExtraData;
 import com.hello.suripu.core.models.Sample;
 import com.hello.suripu.core.models.Sensor;
 import com.hello.suripu.core.models.TimelineFeedback;
@@ -88,7 +90,8 @@ public final class Mapping {
      */
     public static AllSensorSampleList sensors(final List<Json.Sensor> in, final int offsetMillis,
                                               final long startUTC, final long endUTC,
-                                              final Optional<Calibration> calibration) {
+                                              final Optional<Calibration> calibration,
+                                              final int hardwareVersion) {
         final AllSensorSampleList out = new AllSensorSampleList();
         if (in == null || in.isEmpty()) {
             // Matches generateTimeSeriesByUTCTimeAllSensors: no rows means no
@@ -102,7 +105,7 @@ public final class Mapping {
         for (final Json.Sensor s : in) {
             final long t = s.tsMillis;
 
-            final DeviceData raw = new DeviceData.Builder()
+            DeviceData raw = new DeviceData.Builder()
                     .withAccountId(0L)
                     .withDeviceId(0L)
                     .withDateTimeUTC(new DateTime(t, DateTimeZone.UTC))
@@ -127,6 +130,17 @@ public final class Mapping {
                     .withWaveCount(zero(s.waveCount))
                     .withHoldCount(zero(s.holdCount))
                     .build();
+
+            // A Sense 1.5 is the same row with the extra sensors attached, and
+            // that attachment is what flips CalibratedDeviceData to the 1.5
+            // conversions (hasExtra): lux from lux_count / 5, temperature
+            // raw - 6.00 rather than raw - 3.89, humidity uncorrected. This is
+            // DeviceData.senseOneFive on the reference's ingest path.
+            if (hardwareVersion == HardwareVersion.SENSE_ONE_FIVE.value) {
+                raw = DeviceData.senseOneFive(raw, SenseOneFiveExtraData.create(
+                        zero(s.pressure), zero(s.tvoc), zero(s.co2), "",
+                        zero(s.ir), zero(s.clear), zero(s.luxCount), zero(s.uvCount)));
+            }
 
             // WHITE is the Sense 1.0 default. Colour only affects the light
             // calibration curve, and this deployment has one unit.
@@ -331,7 +345,7 @@ public final class Mapping {
         final long endUTC = endLocalUTC.minusMillis(offset).getMillis();
 
         return new OneDaysSensorData(
-                sensors(req.sensors, offset, startUTC, endUTC, calibration(req)),
+                sensors(req.sensors, offset, startUTC, endUTC, calibration(req), req.hardwareVersion),
                 motion(req.motion, req.accountId, offset),
                 // The partner's motion goes through the same truncation and
                 // offset as the sleeper's own, so the two series line up by the

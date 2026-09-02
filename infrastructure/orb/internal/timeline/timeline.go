@@ -58,6 +58,13 @@ type Request struct {
 	PartnerAccountID int64    `json:"partner_account_id,omitempty"`
 	PartnerMotion    []Motion `json:"partner_motion"`
 
+	// StoredEvents are the four main events of the night's last stored
+	// timeline, nil when the night has never been scored. The far side falls
+	// back to them only when every algorithm fails on the night, so a
+	// correction can still be applied and drawn instead of being stored,
+	// acknowledged and never shown. See Server.timeline in orb-algo.
+	StoredEvents *StoredEvents `json:"stored_events,omitempty"`
+
 	// Age in whole years at the night's date, for the sleep duration score.
 	// Zero means unknown; the score reads it as an adult, which is what the
 	// reference does for an account with no birthdate.
@@ -78,6 +85,10 @@ type Request struct {
 	// and is a completely different thing from no calibration at all.
 	DustOffset *int32 `json:"dust_offset,omitempty"`
 
+	// HardwareVersion of the Sense: 1 (or 0, unknown) for the original, 4 for
+	// the 1.5. Selects the far side's conversion formulas.
+	HardwareVersion int32 `json:"hardware_version,omitempty"`
+
 	// PriorModel and Scratchpad carry the account's learned ONLINE_HMM state.
 	// They are opaque protobuf blobs: orb stores them but never interprets
 	// them, because their format belongs to the algorithm. Empty means "use the
@@ -85,6 +96,14 @@ type Request struct {
 	// and the way to recover from a collapsed model.
 	PriorModel []byte `json:"prior_model,omitempty"`
 	Scratchpad []byte `json:"scratchpad,omitempty"`
+}
+
+// StoredEvents is a night's four main events as last stored.
+type StoredEvents struct {
+	InBed    time.Time `json:"in_bed"`
+	Sleep    time.Time `json:"sleep"`
+	WakeUp   time.Time `json:"wake_up"`
+	OutOfBed time.Time `json:"out_of_bed"`
 }
 
 type Sensor struct {
@@ -100,6 +119,15 @@ type Sensor struct {
 	AudioNumDisturbances   *int32    `json:"audio_num_disturbances,omitempty"`
 	WaveCount              *int32    `json:"wave_count,omitempty"`
 	HoldCount              *int32    `json:"hold_count,omitempty"`
+
+	// Sense 1.5 extras, absent on a 1.0. See store.SensorSample.
+	Pressure *int32 `json:"pressure,omitempty"`
+	TVOC     *int32 `json:"tvoc,omitempty"`
+	CO2      *int32 `json:"co2,omitempty"`
+	IR       *int32 `json:"ir,omitempty"`
+	Clear    *int32 `json:"clear,omitempty"`
+	LuxCount *int32 `json:"lux_count,omitempty"`
+	UVCount  *int32 `json:"uv_count,omitempty"`
 }
 
 type Motion struct {

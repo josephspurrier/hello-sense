@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -71,6 +72,19 @@ type SensorReading struct {
 	AudioNumDisturbances   *int32
 	WaveCount              *int32
 	HoldCount              *int32
+
+	// The Sense 1.5 extras, nil on a Sense 1.0. Pressure is Q24.8 pascals,
+	// TVOC ppb, CO2 ppm; the light-sensor group is the TCS3400's clear and IR
+	// channels plus the firmware's own lux and UV counts. The reference reads
+	// light for a 1.5 from lux_count, not from light, and converts
+	// temperature and humidity differently too (SenseOneFiveDataConversion).
+	Pressure *int32
+	TVOC     *int32
+	CO2      *int32
+	IR       *int32
+	Clear    *int32
+	LuxCount *int32
+	UVCount  *int32
 }
 
 // MotionReading is one minute of pill movement.
@@ -123,6 +137,13 @@ type NightData struct {
 	// device has never been calibrated. The timeline's air quality condition is
 	// computed from it, so a night scored without it reads dust high.
 	DustOffset *int32
+
+	// HardwareVersion of the paired Sense: 1 for the original, 4 for the Sense
+	// 1.5 (with voice), the reference's HardwareVersion ids. Zero when the
+	// device never reported one, which the far side reads as a 1.0. The two
+	// generations convert light, temperature and humidity differently, and a
+	// 1.5 read with 1.0 formulas sees a lit room as dark.
+	HardwareVersion int32
 }
 
 // LoadNight assembles one night.
@@ -162,20 +183,27 @@ func (s *Store) LoadNight(ctx context.Context, accountID int64, date time.Time) 
 	//
 	// A missing row leaves it nil, which is correct: no calibration is not an
 	// offset of zero, and an offset of zero derives a delta of +300.
+	var hwVersion *string
 	if err := s.pool.QueryRow(ctx, `
-		SELECT s.dust_offset
+		SELECT s.dust_offset, s.hw_version
 		FROM senses s
 		JOIN account_senses a ON a.device_id = s.device_id AND a.active
-		WHERE a.account_id = $1`, accountID).Scan(&out.DustOffset); err != nil &&
+		WHERE a.account_id = $1`, accountID).Scan(&out.DustOffset, &hwVersion); err != nil &&
 		!errors.Is(err, pgx.ErrNoRows) {
 		return out, fmt.Errorf("store: night dust offset %d: %w", accountID, err)
+	}
+
+	if hwVersion != nil {
+		if v, perr := strconv.Atoi(*hwVersion); perr == nil {
+			out.HardwareVersion = int32(v)
+		}
 	}
 
 	sensorRows, err := s.pool.Query(ctx, `
 		SELECT ts, offset_ms, temperature, humidity, light, light_variance,
 		       air_quality_raw, audio_peak_background_db, audio_peak_energy_db,
 		       audio_peak_disturbances_db, audio_num_disturbances, wave_count,
-		       hold_count
+		       hold_count, pressure, tvoc, co2, ir, clear, lux_count, uv_count
 		FROM sensor_samples
 		WHERE account_id = $1 AND ts >= $2 AND ts < $3
 		ORDER BY ts`, accountID, out.Start, out.End)
@@ -187,7 +215,8 @@ func (s *Store) LoadNight(ctx context.Context, accountID int64, date time.Time) 
 		if err := sensorRows.Scan(&r.TS, &r.OffsetMS, &r.Temperature, &r.Humidity,
 			&r.Light, &r.LightVariance, &r.AirQualityRaw, &r.AudioPeakBackgroundDB,
 			&r.AudioPeakEnergyDB, &r.AudioPeakDisturbanceDB, &r.AudioNumDisturbances,
-			&r.WaveCount, &r.HoldCount); err != nil {
+			&r.WaveCount, &r.HoldCount, &r.Pressure, &r.TVOC, &r.CO2, &r.IR, &r.Clear,
+			&r.LuxCount, &r.UVCount); err != nil {
 			sensorRows.Close()
 			return out, err
 		}
@@ -236,6 +265,27 @@ func (s *Store) LoadNight(ctx context.Context, accountID int64, date time.Time) 
 		out.Feedback = append(out.Feedback, f)
 	}
 	return out, fbRows.Err()
+}
+
+// StoredEvents returns the four main events of a night's stored timeline, or
+// nil when the night has never been scored or the stored row is incomplete.
+func (s *Store) StoredEvents(ctx context.Context, accountID int64, date time.Time) (*timeline.StoredEvents, error) {
+	var inBed, sleep, wake, out *time.Time
+	err := s.pool.QueryRow(ctx, `
+		SELECT in_bed_at, sleep_at, wake_up_at, out_of_bed_at
+		FROM timeline_events
+		WHERE account_id = $1 AND date_of_night = $2 AND sleep_period = 2`,
+		accountID, date).Scan(&inBed, &sleep, &wake, &out)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: stored events: %w", err)
+	}
+	if inBed == nil || sleep == nil || wake == nil || out == nil {
+		return nil, nil
+	}
+	return &timeline.StoredEvents{InBed: *inBed, Sleep: *sleep, WakeUp: *wake, OutOfBed: *out}, nil
 }
 
 // motionInWindow is one account's pill samples over a window, oldest first.

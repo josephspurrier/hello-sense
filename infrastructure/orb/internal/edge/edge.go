@@ -273,6 +273,17 @@ func (h *Handler) senseBatch(w http.ResponseWriter, r *http.Request) {
 			AudioPeakEnergyDB:      i32ptr(audioRawToStored(d.GetAudioPeakEnergyDb())),
 			AudioPeakDisturbanceDB: i32ptr(audioRawToStored(d.GetAudioPeakDisturbanceEnergyDb())),
 
+			// Sense 1.5 only. Kept as sent, nil when the field is absent, so a
+			// 1.0 upload stores nothing here rather than a row of zeros that
+			// would read as a measured vacuum.
+			Pressure: u32p(d.Pressure),
+			TVOC:     i32p(d.Tvoc),
+			CO2:      i32p(d.Co2),
+			IR:       lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetInfrared),
+			Clear:    lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetClear),
+			LuxCount: lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetLuxCount),
+			UVCount:  lightSensorField(d.LightSensor, (*pbdev.PeriodicDataLightData).GetUvCount),
+
 			// Absent counts are stored as 0, not NULL. suripu coerces with
 			// `hasX() ? getX() : 0` (SenseProcessorUtils.java:155). The device
 			// simply omits these when they are zero, so NULL here would mean
@@ -781,6 +792,26 @@ func (h *Handler) fail(w http.ResponseWriter, what string, err error, code int) 
 }
 
 func i32p(p *int32) *int32 { return p }
+
+// u32p narrows an optional uint32 to the int32 column that stores it. The
+// only such field is pressure in Q24.8, which fits: 1100 hPa is 28 million.
+func u32p(p *uint32) *int32 {
+	if p == nil {
+		return nil
+	}
+	v := int32(*p)
+	return &v
+}
+
+// lightSensorField reads one field of the 1.5's light-sensor group, nil when
+// the group itself was not sent.
+func lightSensorField(ls *pbdev.PeriodicDataLightData, get func(*pbdev.PeriodicDataLightData) int32) *int32 {
+	if ls == nil {
+		return nil
+	}
+	v := get(ls)
+	return &v
+}
 
 func i32ptr(v int32) *int32 { return &v }
 
