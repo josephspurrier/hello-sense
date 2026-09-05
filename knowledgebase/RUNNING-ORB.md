@@ -358,7 +358,7 @@ The worker gained a `notifications` job on a 15 minute ticker, sending two kinds
 | kind | when | dedupe bucket |
 |---|---|---|
 | `sleep_score` | a night scored in the last 24h **and** dated last night or today | the night's date |
-| `pill_battery` | a paired, active pill under 10% | the ISO week |
+| `pill_battery` | a paired, active pill under 10% on two consecutive heartbeats | the ISO week |
 
 **Both bounds on the sleep score matter, and they catch different things.**
 Without the `updated_at` bound, the first run against a database of history would

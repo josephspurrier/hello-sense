@@ -90,8 +90,12 @@ type SenseRow struct {
 type PillRow struct {
 	PillID          string
 	FirmwareVersion int32
-	BatteryLevel    int32
-	LastSeenAt      time.Time
+	// Nil until the first heartbeat. The reference reports a pill that has
+	// never been heard from as state UNKNOWN, not as a flat battery.
+	BatteryLevel *int32
+	// "REMOVABLE" or "SEALED"; nil when nobody has recorded which pill it is.
+	BatteryType *string
+	LastSeenAt  time.Time
 }
 
 // DevicesFor returns the account's paired devices.
@@ -127,7 +131,7 @@ func (s *Store) DevicesFor(ctx context.Context, accountID int64) ([]SenseRow, []
 	}
 
 	pillRows, err := s.pool.Query(ctx, `
-		SELECT p.pill_id, COALESCE(p.firmware_version, 0), COALESCE(p.battery_level, 0),
+		SELECT p.pill_id, COALESCE(p.firmware_version, 0), p.battery_level, p.battery_type,
 		       COALESCE(p.last_seen_at, p.created_at)
 		FROM pills p
 		JOIN account_pills a ON a.pill_id = p.pill_id
@@ -140,7 +144,7 @@ func (s *Store) DevicesFor(ctx context.Context, accountID int64) ([]SenseRow, []
 	var pills []PillRow
 	for pillRows.Next() {
 		var r PillRow
-		if err := pillRows.Scan(&r.PillID, &r.FirmwareVersion, &r.BatteryLevel, &r.LastSeenAt); err != nil {
+		if err := pillRows.Scan(&r.PillID, &r.FirmwareVersion, &r.BatteryLevel, &r.BatteryType, &r.LastSeenAt); err != nil {
 			return nil, nil, err
 		}
 		pills = append(pills, r)
@@ -2142,13 +2146,21 @@ type LowBatteryPill struct {
 	Battery   int32
 }
 
-// PillsBelowBattery lists paired pills under a battery percentage.
+// PillsBelowBattery lists paired pills whose last TWO heartbeats were both
+// under a battery percentage.
+//
+// One reading is not enough. The pill estimates capacity from a loaded
+// voltage measurement, and near the end of a coin cell that estimate swings
+// by tens of percent between hourly heartbeats (10 one hour, 33 the next).
+// Two in a row is the cheapest filter that still fires within two hours of a
+// battery that is really gone.
 func (s *Store) PillsBelowBattery(ctx context.Context, threshold int32) ([]LowBatteryPill, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT ap.account_id, p.pill_id, p.battery_level
 		FROM pills p
 		JOIN account_pills ap ON ap.pill_id = p.pill_id AND ap.active
-		WHERE p.battery_level IS NOT NULL AND p.battery_level < $1`, threshold)
+		WHERE p.battery_level IS NOT NULL AND p.battery_level < $1
+		  AND p.prev_battery_level IS NOT NULL AND p.prev_battery_level < $1`, threshold)
 	if err != nil {
 		return nil, fmt.Errorf("store: pills below battery: %w", err)
 	}

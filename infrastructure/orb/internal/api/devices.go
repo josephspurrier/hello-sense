@@ -93,18 +93,45 @@ func (h *Handler) getDevices(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, p := range pills {
+		batteryType := "UNKNOWN"
+		if p.BatteryType != nil {
+			batteryType = *p.BatteryType
+		}
 		out.Pills = append(out.Pills, Pill{
 			ID:              p.PillID,
 			FirmwareVersion: fmt.Sprintf("%d", p.FirmwareVersion),
 			LastUpdated:     p.LastSeenAt.UnixMilli(),
-			BatteryLevel:    p.BatteryLevel,
-			BatteryType:     "UNKNOWN",
-			State:           "NORMAL",
+			BatteryLevel:    derefI32(p.BatteryLevel),
+			BatteryType:     batteryType,
+			State:           pillState(p.BatteryLevel),
 			Color:           "BLUE",
 		})
 	}
 
 	writeJSON(w, http.StatusOK, out)
+}
+
+// pillLowBattery is the reference's MIN_IDEAL_BATTERY_LEVEL: under it the pill
+// is reported as LOW_BATTERY, which is what the app's "Battery level" row and
+// its low-battery warning are keyed on. The app never looks at the number.
+//
+// Deliberately higher than the push worker's threshold: the settings screen
+// may say "Low" for a while before the phone is interrupted about it.
+const pillLowBattery = 15
+
+// pillState is the reference's Pill.State for a battery reading.
+//
+// Nil means no heartbeat yet, which the reference reports as UNKNOWN (the app
+// shows a dash) rather than as a flat battery on a pill paired a minute ago.
+func pillState(battery *int32) string {
+	switch {
+	case battery == nil:
+		return "UNKNOWN"
+	case *battery < pillLowBattery:
+		return "LOW_BATTERY"
+	default:
+		return "NORMAL"
+	}
 }
 
 // wifiCondition buckets signal strength the way the app expects to receive it.

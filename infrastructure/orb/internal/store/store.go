@@ -255,9 +255,15 @@ func (s *Store) InsertPillSamples(ctx context.Context, samples []PillSample) (in
 }
 
 // TouchPill records battery and liveness from a relayed heartbeat.
+//
+// A new battery reading shifts the current one into prev_battery_level, so the
+// low-battery push can ask for two consecutive low heartbeats. Every SET
+// expression reads the row as it was before the statement, so the order of the
+// assignments does not matter.
 func (s *Store) TouchPill(ctx context.Context, pillID string, seenAt time.Time, battery, uptime *int32) error {
 	_, err := s.pool.Exec(ctx, `
 		UPDATE pills SET last_seen_at = $2,
+		                 prev_battery_level = CASE WHEN $3::int IS NULL THEN prev_battery_level ELSE battery_level END,
 		                 battery_level = COALESCE($3, battery_level),
 		                 uptime_secs = COALESCE($4, uptime_secs)
 		WHERE pill_id = $1`, pillID, seenAt, battery, uptime)

@@ -36,6 +36,8 @@ var settingForKind = map[string]string{
 const scoreWindow = 24 * time.Hour
 
 // pillBatteryThreshold matches the reference's battery_notification_threshold.
+// Unlike the reference, orb wants two consecutive heartbeats under it before
+// it says anything; see Store.PillsBelowBattery for why.
 const pillBatteryThreshold = 10
 
 // runNotifications sends the notifications that are due.
