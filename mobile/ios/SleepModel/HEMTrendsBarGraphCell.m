@@ -160,14 +160,30 @@ static CGFloat const HEMTrendsBarDashLineYOffset = 2.0f;
 
 - (void)renderBars {
     [[self highlightLabels] makeObjectsPerformSelector:@selector(removeFromSuperview)];
+    [[self highlightLabels] removeAllObjects];
     [[self barChartView] setMaxValue:[self maxValue]];
     [[self barChartView] setMinValue:[self minValue]];
     [[self barChartView] setBarSpacing:[self barSpacing]];
     [[self barChartView] setBarWidth:[self barWidth]];
     [[self barChartView] updateBarChartWith:[self combinedPoints] completion:^(NSInteger minIndex, NSInteger maxIndex) {
-        [self showHighlightLabelAtIndex:minIndex];
-        [self showHighlightLabelAtIndex:maxIndex];
+        if ([self canLabelEveryBar]) {
+            NSInteger count = [[self combinedPoints] count];
+            for (NSInteger index = 0; index < count; index++) {
+                [self showHighlightLabelAtIndex:index];
+            }
+        } else {
+            [self showHighlightLabelAtIndex:minIndex];
+            [self showHighlightLabelAtIndex:maxIndex];
+        }
     }];
+}
+
+- (BOOL)canLabelEveryBar {
+    // labels are centered over their bars, so adjacent label centers sit one
+    // bar pitch apart; only label everything when a full-width label fits in
+    // that pitch (week view), otherwise dense scales overlap into noise
+    CGFloat pitch = [self barWidth] + [self barSpacing];
+    return pitch >= HEMTrendsBarHighlightLabelWidth + HEMTrendsBarHighlightLabelSpacing;
 }
 
 - (void)showHighlightLabelAtIndex:(NSInteger)index {
