@@ -1,0 +1,21 @@
+diff --git a/suripu-core/src/main/java/com/hello/suripu/core/util/TimelineSafeguards.java b/suripu-core/src/main/java/com/hello/suripu/core/util/TimelineSafeguards.java
+index c0c93716c..c0106ea72 100644
+--- a/suripu-core/src/main/java/com/hello/suripu/core/util/TimelineSafeguards.java
++++ b/suripu-core/src/main/java/com/hello/suripu/core/util/TimelineSafeguards.java
+@@ -27,7 +27,15 @@ public class TimelineSafeguards {
+ 
+     private static final long NUM_MILLIS_IN_A_MINUTE = 60000L;
+ 
+-    public static final int MINIMUM_SLEEP_DURATION_MINUTES = 180; //three hours
++    // Was 180 (three hours). A night at or under this is thrown away by
++    // checkIfValidTimeline, every algorithm in the chain then reports
++    // NOT_ENOUGH_HOURS_OF_SLEEP, and with nothing stored to fall back on the
++    // app shows "no sleep data recorded" for a night the pill measured
++    // correctly. Observed 2026-09-10: ONLINE_HMM placed sleep at 04:30 and
++    // waking at 07:25, which is what happened, and 175 minutes lost it.
++    // Two hours still screens out the stray short readings this guards
++    // against, and the motion-count thresholds below do that job anyway.
++    public static final int MINIMUM_SLEEP_DURATION_MINUTES = 120; //two hours
+     private static final int MAXIMUM_ALLOWABLE_DATAGAP = 60; //one hour
+ 
+     //sleep period specific thresholds
