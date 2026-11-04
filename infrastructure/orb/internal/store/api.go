@@ -73,7 +73,7 @@ func (s *Store) TimezoneAt(ctx context.Context, accountID int64, at time.Time) (
 	if err != nil {
 		return 0, "", fmt.Errorf("store: timezone %d: %w", accountID, err)
 	}
-	return offsetMS, zone, nil
+	return zoneOffsetMS(zone, at, offsetMS), zone, nil
 }
 
 // SenseRow and PillRow are the device rows the app renders.

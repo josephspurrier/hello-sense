@@ -283,17 +283,36 @@ func (s *Store) TouchPill(ctx context.Context, pillID string, seenAt time.Time, 
 // to look, not a value to store.
 func (s *Store) OffsetMSAt(ctx context.Context, accountID int64, at time.Time) (int32, bool, error) {
 	var offset int32
+	var zone string
 	err := s.pool.QueryRow(ctx, `
-		SELECT offset_ms FROM timezone_history
+		SELECT offset_ms, timezone_id FROM timezone_history
 		WHERE account_id = $1 AND effective_from <= $2
-		ORDER BY effective_from DESC LIMIT 1`, accountID, at).Scan(&offset)
+		ORDER BY effective_from DESC LIMIT 1`, accountID, at).Scan(&offset, &zone)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, false, nil
 	}
 	if err != nil {
 		return 0, false, fmt.Errorf("store: offset for %d: %w", accountID, err)
 	}
-	return offset, true, nil
+	return zoneOffsetMS(zone, at, offset), true, nil
+}
+
+// zoneOffsetMS is the UTC offset of a named zone at an instant.
+//
+// timezone_history.offset_ms is a snapshot taken when the app last sent its
+// zone, so it is the summer offset all winter (or the reverse) unless the app
+// happens to re-register after a DST change. The zone id is the truth; the
+// stored offset is only the fallback for a row with no usable id.
+func zoneOffsetMS(zone string, at time.Time, stored int32) int32 {
+	if zone == "" {
+		return stored
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return stored
+	}
+	_, secs := at.In(loc).Zone()
+	return int32(secs) * 1000
 }
 
 // NextMessage pops the oldest undelivered command for a device, replacing
